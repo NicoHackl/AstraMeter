@@ -18,6 +18,7 @@ from astrameter.config.config_loader import (
 )
 from astrameter.conftest import needs_mosquitto
 from astrameter.powermeter.base import Powermeter
+from astrameter.powermeter.wrappers.dynamic_offset import DynamicOffsetPowermeter
 from astrameter.powermeter.wrappers.health import HealthTrackingPowermeter
 
 from .discovery import (
@@ -402,6 +403,15 @@ def test_powermeter_device_discovery_structure():
     assert comps["grid_power_total"]["name"] is None
     assert comps["grid_power_l1"]["name"] == "Power L1"
     assert "value_json.grid_power.total" in comps["grid_power_total"]["value_template"]
+
+    # Live offset control: a retained Number bound to the offset command topic.
+    offset = comps["offset"]
+    assert offset["platform"] == "number"
+    assert offset["unit_of_measurement"] == "W"
+    assert offset["command_topic"] == "astrameter/powermeter/MQTT_1/offset/set"
+    assert offset["value_template"] == "{{ value_json.offset | default(0) }}"
+    assert offset["retain"] is True
+    assert offset["entity_category"] == "config"
 
 
 def test_powermeter_device_discovery_capital_cases_multiword_section():
@@ -818,6 +828,79 @@ async def test_powermeter_status_stale_control_read_falls_back_to_probe():
     assert inner.probes == 2  # one control read + one fallback probe
 
 
+# ── Powermeter live offset command (no broker) ───────────────────────────
+
+
+def _offset_service(
+    section: str = "MQTT_1", offset_value: float = 0.0
+) -> tuple[MqttInsightsService, DynamicOffsetPowermeter]:
+    inner = _PullMeter([100.0])
+    offset_wrap = DynamicOffsetPowermeter(inner, offset=offset_value)
+    pm = HealthTrackingPowermeter(offset_wrap, name=section)
+    service = MqttInsightsService(
+        MqttInsightsConfig(broker="localhost"), powermeters=[pm]
+    )
+    return service, offset_wrap
+
+
+async def test_offset_command_sets_live_offset():
+    service, offset_wrap = _offset_service()
+    service._handle_powermeter_offset_command("MQTT_1", "500")
+    assert offset_wrap.offset == 500.0
+    # The offset now shifts every phase the control loop sees.
+    assert await offset_wrap.get_powermeter_watts() == [600.0]
+
+
+async def test_offset_command_negative_and_reset():
+    service, offset_wrap = _offset_service(offset_value=500.0)
+    service._handle_powermeter_offset_command("MQTT_1", "-250.5")
+    assert offset_wrap.offset == -250.5
+    service._handle_powermeter_offset_command("MQTT_1", "0")
+    assert offset_wrap.offset == 0.0
+
+
+async def test_offset_command_invalid_value_is_ignored():
+    service, offset_wrap = _offset_service(offset_value=100.0)
+    service._handle_powermeter_offset_command("MQTT_1", "not-a-number")
+    assert offset_wrap.offset == 100.0  # unchanged
+
+
+async def test_offset_command_out_of_range_is_ignored():
+    service, offset_wrap = _offset_service(offset_value=100.0)
+    service._handle_powermeter_offset_command("MQTT_1", "99999")
+    assert offset_wrap.offset == 100.0  # unchanged
+
+
+async def test_offset_command_empty_payload_keeps_current_value():
+    service, offset_wrap = _offset_service(offset_value=300.0)
+    service._handle_powermeter_offset_command("MQTT_1", "")
+    assert offset_wrap.offset == 300.0  # retained-clear leaves the value
+
+
+async def test_offset_command_unknown_powermeter_is_noop():
+    service, offset_wrap = _offset_service()
+    service._handle_powermeter_offset_command("DOES_NOT_EXIST", "500")
+    assert offset_wrap.offset == 0.0
+
+
+async def test_offset_reflected_in_health_payload():
+    service, offset_wrap = _offset_service(offset_value=0.0)
+    offset_wrap.set_offset(750.0)
+    client = AsyncMock()
+    await service._publish_powermeter_health(
+        client,
+        "astrameter",
+        service._config,
+        "MQTT_1",
+        True,
+        [100.0],
+        750.0,
+    )
+    payloads = [json.loads(c.kwargs["payload"]) for c in client.publish.call_args_list]
+    state = next(p for p in payloads if "offset" in p)
+    assert state["offset"] == 750.0
+
+
 def test_grid_power_payload_phase_counts():
     assert MqttInsightsService._grid_power_payload([1.0, 2.0, 3.0]) == {
         "l1": 1.0,
@@ -861,6 +944,7 @@ async def test_publish_powermeter_health_state_and_discovery_once():
     assert json.loads(state_call.kwargs["payload"]) == {
         "online": True,
         "grid_power": {"l1": 1.0, "l2": 2.0, "l3": 3.0, "total": 6.0},
+        "offset": 0.0,
     }
     assert state_call.kwargs["retain"] is True
 

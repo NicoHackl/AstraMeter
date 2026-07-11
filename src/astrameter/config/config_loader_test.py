@@ -32,7 +32,7 @@ from astrameter.config.config_loader import (
     read_all_powermeter_configs,
     read_mqtt_insights_config,
 )
-from astrameter.powermeter import TransformedPowermeter
+from astrameter.powermeter import DynamicOffsetPowermeter, TransformedPowermeter
 
 
 def test_client_filter():
@@ -667,6 +667,8 @@ def test_read_all_configs_with_power_transform():
     assert len(powermeters) == 1
     pm, _, _ = powermeters[0]
     pm = pm.wrapped_powermeter  # unwrap outermost HealthTrackingPowermeter
+    assert isinstance(pm, DynamicOffsetPowermeter)  # always-on live-offset layer
+    pm = pm.wrapped_powermeter  # unwrap the live-offset wrapper
     assert isinstance(pm, TransformedPowermeter)
     assert pm.offsets == [-50.0]
     assert pm.multipliers == [1.05]
@@ -685,6 +687,8 @@ def test_read_all_configs_with_per_phase_transform():
     assert len(powermeters) == 1
     pm, _, _ = powermeters[0]
     pm = pm.wrapped_powermeter  # unwrap outermost HealthTrackingPowermeter
+    assert isinstance(pm, DynamicOffsetPowermeter)  # always-on live-offset layer
+    pm = pm.wrapped_powermeter  # unwrap the live-offset wrapper
     assert isinstance(pm, TransformedPowermeter)
     assert pm.offsets == [-10.0, -20.0, -30.0]
     assert pm.multipliers == [1.05, 1.02, 1.03]
@@ -702,6 +706,8 @@ def test_read_all_configs_offset_only():
     assert len(powermeters) == 1
     pm, _, _ = powermeters[0]
     pm = pm.wrapped_powermeter  # unwrap outermost HealthTrackingPowermeter
+    assert isinstance(pm, DynamicOffsetPowermeter)  # always-on live-offset layer
+    pm = pm.wrapped_powermeter  # unwrap the live-offset wrapper
     assert isinstance(pm, TransformedPowermeter)
     assert pm.offsets == [10.0]
     assert pm.multipliers == [1.0]
@@ -719,6 +725,8 @@ def test_read_all_configs_zero_multiplier_accepted():
     assert len(powermeters) == 1
     pm, _, _ = powermeters[0]
     pm = pm.wrapped_powermeter  # unwrap outermost HealthTrackingPowermeter
+    assert isinstance(pm, DynamicOffsetPowermeter)  # always-on live-offset layer
+    pm = pm.wrapped_powermeter  # unwrap the live-offset wrapper
     assert isinstance(pm, TransformedPowermeter)
     assert pm.multipliers == [0.0]
 
@@ -749,7 +757,9 @@ def test_read_all_configs_no_transform_when_not_configured():
     assert len(powermeters) == 1
     pm, _, _ = powermeters[0]
     pm = pm.wrapped_powermeter  # unwrap outermost HealthTrackingPowermeter
-    assert not isinstance(pm, TransformedPowermeter)
+    # The live-offset wrapper is always present; no static transform beneath it.
+    assert isinstance(pm, DynamicOffsetPowermeter)
+    assert not isinstance(pm.wrapped_powermeter, TransformedPowermeter)
 
 
 def test_read_all_configs_wait_for_next_message_default_true():

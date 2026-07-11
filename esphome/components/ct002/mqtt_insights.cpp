@@ -262,6 +262,9 @@ void MqttInsightsComponent::publish_consumer_event_(const std::string &consumer_
     // reads its state here, so it shows "off" when active control is disabled
     // (via YAML or the switch itself) rather than always reading "on".
     root["active_control"] = this->ct002_->active_control();
+    // Live grid-power offset (watts) — HA's "Grid Offset" Number reads its
+    // state here so it reflects the current value across restarts.
+    root["grid_offset"] = this->ct002_->grid_offset();
     root["consumer_count"] = this->ct002_->reporting_consumer_count();
   });
   this->mqtt_->publish(this->base_topic_ + "/ct002/" + this->device_id_ + "/status", device_buf, 0,
@@ -426,6 +429,20 @@ void MqttInsightsComponent::handle_device_command_(const std::string &payload) {
       this->ct002_->set_active_control(root["active_control"].as<bool>());
     } else if (!root["active_control"].isNull()) {
       ESP_LOGW(TAG, "Invalid active_control value in device command");
+    }
+    // Live grid-power offset (watts) added to every phase, on top of any
+    // native `sensor: filters: offset:`. Published retained by HA so the
+    // choice restores on restart. Range-checked like the consumer scalars.
+    auto go = root["grid_offset"];
+    if (go.is<float>() || go.is<int>() || go.is<long>()) {
+      const float v = go.as<float>();
+      if (std::isfinite(v) && v >= -10000.0f && v <= 10000.0f) {
+        this->ct002_->set_grid_offset(v);
+      } else {
+        ESP_LOGW(TAG, "Out-of-range grid_offset: %.1f", v);
+      }
+    } else if (!go.isNull()) {
+      ESP_LOGW(TAG, "Invalid grid_offset value in device command");
     }
     return true;
   });

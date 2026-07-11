@@ -126,12 +126,22 @@ void CT002Component::setup() {
     this->power_sensor_l3_->add_on_state_callback([cache](float v) { cache(2, v); });
 
   // Build the filter pipeline. Order matches Python config_loader.py:
-  // SensorBacked → Hampel → Smoothed → Deadband → PID.
+  // SensorBacked → DynamicOffset → Hampel → Smoothed → Deadband → PID.
   auto head = std::make_unique<SensorBackedPowermeter>(this->num_phases_, &this->raw_values_,
                                                       &this->raw_stamp_ms_,
                                                       this->max_sensor_age_ms_);
   Powermeter *current = head.get();
   this->pipeline_.push_back(std::move(head));
+  // Live grid-power offset — always present (starts at grid_offset_, 0 W = no
+  // op) so the MQTT / HA "Grid Offset" control is available. Placed inner
+  // (before the filter pipeline) so the adjustment feeds Hampel/smoothing/etc,
+  // mirroring the Python DynamicOffsetPowermeter's position in config_loader.
+  {
+    auto w = std::make_unique<DynamicOffsetPowermeter>(current, this->grid_offset_);
+    this->offset_wrapper_ = w.get();
+    current = w.get();
+    this->pipeline_.push_back(std::move(w));
+  }
   if (this->hampel_cfg_.has_value()) {
     auto w = std::make_unique<HampelPowermeter>(current, this->hampel_cfg_->window,
                                                this->hampel_cfg_->n_sigma,

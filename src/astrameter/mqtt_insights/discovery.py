@@ -524,6 +524,25 @@ def build_powermeter_device_discovery(
         "entity_category": "diagnostic",
     }
 
+    # Live grid-power offset (watts) added on top of any static POWER_OFFSET.
+    # Retained command so it survives restarts, like the per-battery controls.
+    components["offset"] = {
+        "platform": "number",
+        "unique_id": f"{uid_prefix}_offset",
+        "name": "Offset",
+        "unit_of_measurement": "W",
+        "device_class": "power",
+        "min": -10000,
+        "max": 10000,
+        "step": 1,
+        "mode": "box",
+        "state_topic": state_topic,
+        "value_template": "{{ value_json.offset | default(0) }}",
+        "command_topic": f"{state_topic}/offset/set",
+        "retain": True,
+        "entity_category": "config",
+    }
+
     device_info: dict = {
         "identifiers": node_id,
         # Capital-Case the config section for a readable device label

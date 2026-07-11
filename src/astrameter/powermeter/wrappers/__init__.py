@@ -1,4 +1,5 @@
 from .base import PowermeterWrapper
+from .dynamic_offset import DynamicOffsetPowermeter
 from .hampel import HampelPowermeter
 from .health import HealthTrackingPowermeter
 from .pid import PidPowermeter
@@ -8,6 +9,7 @@ from .transform import TransformedPowermeter
 
 __all__ = [
     "DeadbandPowermeter",
+    "DynamicOffsetPowermeter",
     "HampelPowermeter",
     "HealthTrackingPowermeter",
     "PidPowermeter",

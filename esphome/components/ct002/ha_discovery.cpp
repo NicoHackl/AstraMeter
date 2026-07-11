@@ -386,6 +386,28 @@ std::pair<std::string, std::string> build_ct002_device_discovery(
     ac["retain"] = true;
     ac["entity_category"] = "config";
 
+    // Grid Offset number — a live offset (watts) added to every phase on top of
+    // any native `sensor: filters: offset:`, published retained to the device
+    // command topic so it survives a restart. ESPHome-only: the Python stack
+    // exposes the equivalent on its (Python-only) per-powermeter device instead,
+    // since ESPHome has no powermeter layer (see CONTRIBUTING.md).
+    JsonObject go = components["grid_offset"].to<JsonObject>();
+    go["platform"] = "number";
+    go["unique_id"] = uid_prefix + "_grid_offset";
+    go["name"] = "Grid Offset";
+    go["unit_of_measurement"] = "W";
+    go["device_class"] = "power";
+    go["min"] = -10000;
+    go["max"] = 10000;
+    go["step"] = 1;
+    go["mode"] = "box";
+    go["state_topic"] = state_topic;
+    go["value_template"] = "{{ value_json.grid_offset | default(0) }}";
+    go["command_topic"] = base_topic + "/ct002/" + device_id + "/set";
+    go["command_template"] = "{\"grid_offset\": {{ value }}}";
+    go["retain"] = true;
+    go["entity_category"] = "config";
+
     JsonObject cc = components["consumer_count"].to<JsonObject>();
     cc["platform"] = "sensor";
     cc["unique_id"] = uid_prefix + "_consumer_count";

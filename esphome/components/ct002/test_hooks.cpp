@@ -115,6 +115,7 @@ bool CT002Component::apply_cfg_(const std::string &key, double v) {
   // Component-level fields the shared e2e scenarios toggle at runtime (the
   // balancer rebuild below is harmless for these).
   else if (key == "active_control") this->active_control_ = (v != 0.0);
+  else if (key == "grid_offset") this->set_grid_offset(f);
   else if (key == "consumer_ttl") {
     // Negative = adaptive eviction (Python's consumer_ttl=None default);
     // >= 0 = fixed TTL in seconds.

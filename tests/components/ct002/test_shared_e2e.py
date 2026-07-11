@@ -217,6 +217,9 @@ class EsphomeBackend:
     def set_active_control(self, enabled: bool) -> None:
         self._cmd(f"cfg active_control {1 if enabled else 0}")
 
+    def set_grid_offset(self, watts: float) -> None:
+        self._cmd(f"cfg grid_offset {watts}")
+
     def set_consumer_ttl(self, seconds: float | None) -> None:
         self._cmd(f"cfg consumer_ttl {-1 if seconds is None else seconds}")
 
@@ -369,6 +372,25 @@ def test_grid_injection_sign(backend) -> None:
     r = backend.poll("AABBCCDDEEFF", "A", 0)
     assert r is not None, f"[{backend.name}] no response after grid sign flip"
     assert int(r[4]) < 0, f"[{backend.name}] export should drive charge (-), got {r[4]}"
+
+
+def test_grid_offset_shifts_control() -> None:
+    """The live grid offset (ESPHome-only ct002 feature) shifts the value the
+    balancer sees: with a 0 W meter, a +300 W offset drives discharge and a
+    -300 W offset drives charge, and clearing it returns to neutral."""
+    with _running_esphome_backend() as backend:
+        backend.set_clock(1000)
+        backend.set_grid(0)
+        backend.set_grid_offset(300)  # pretend +300 W import
+        r = backend.poll("AABBCCDDEEFF", "A", 0)
+        assert r is not None, "no response with positive offset"
+        assert int(r[4]) > 0, f"+offset should drive discharge (+), got {r[4]}"
+
+        backend.advance_clock(DEDUPE_WINDOW_S + 5)
+        backend.set_grid_offset(-300)  # pretend -300 W export
+        r = backend.poll("AABBCCDDEEFF", "A", 0)
+        assert r is not None, "no response with negative offset"
+        assert int(r[4]) < 0, f"-offset should drive charge (-), got {r[4]}"
 
 
 @pytest.mark.timeout(30, func_only=True)

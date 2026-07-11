@@ -42,6 +42,7 @@ from astrameter.powermeter import (
     VZLogger,
     parse_sml_obis_config,
 )
+from astrameter.powermeter.wrappers.dynamic_offset import DynamicOffsetPowermeter
 from astrameter.powermeter.wrappers.hampel import HampelPowermeter
 from astrameter.powermeter.wrappers.health import HealthTrackingPowermeter
 from astrameter.powermeter.wrappers.smoothing import (
@@ -205,6 +206,14 @@ def read_all_powermeter_configs(
                     f"Applying power transform (multiplier={multipliers}, offset={offsets}) to {section}"
                 )
                 powermeter = TransformedPowermeter(powermeter, offsets, multipliers)
+
+            # Live, MQTT-adjustable offset applied *in addition* to the static
+            # POWER_OFFSET above. Always wrapped (starts at 0 W = no-op) so the
+            # MQTT Insights offset control is available for every meter, even
+            # when no static transform is configured. Placed inner (before
+            # throttling/filtering) so the adjustment feeds the same pipeline as
+            # POWER_OFFSET does.
+            powermeter = DynamicOffsetPowermeter(powermeter)
 
             section_throttle_interval = config.getfloat(
                 section, "THROTTLE_INTERVAL", fallback=global_throttle_interval

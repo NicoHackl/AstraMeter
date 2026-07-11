@@ -22,6 +22,7 @@ from .tq_em import TQEnergyManager
 from .vzlogger import VZLogger
 from .wrappers import (
     DeadbandPowermeter,
+    DynamicOffsetPowermeter,
     HampelPowermeter,
     PidPowermeter,
     PowermeterWrapper,
@@ -33,6 +34,7 @@ from .wrappers import (
 __all__ = [
     "AmisReader",
     "DeadbandPowermeter",
+    "DynamicOffsetPowermeter",
     "ESPHome",
     "Emlog",
     "Envoy",

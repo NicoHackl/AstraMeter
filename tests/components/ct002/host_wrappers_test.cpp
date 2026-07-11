@@ -14,6 +14,7 @@
 
 #define CT002_HOST_TEST 1
 #include "esphome/components/ct002/wrapper_base.h"
+#include "esphome/components/ct002/dynamic_offset.h"
 #include "esphome/components/ct002/hampel.h"
 #include "esphome/components/ct002/pid.h"
 #include "esphome/components/ct002/smoothing.h"
@@ -21,6 +22,7 @@
 namespace {
 
 using esphome::ct002::DeadbandPowermeter;
+using esphome::ct002::DynamicOffsetPowermeter;
 using esphome::ct002::HampelPowermeter;
 using esphome::ct002::PidMode;
 using esphome::ct002::PidPowermeter;
@@ -234,6 +236,53 @@ TEST(Pid, IntegralWindsUpAndSettles) {
   // error = -100; integral accumulates +error*dt = -400; i_term = 0.5 * -400 = -200.
   // Clamped only if |output|>max; here |output|=200<500, so accepted.
   EXPECT_NEAR(vsum(out), -200.0f, 1e-3);
+}
+
+// ---- Dynamic offset ----
+
+TEST(DynamicOffset, DefaultOffsetIsIdentity) {
+  StubSource src;
+  DynamicOffsetPowermeter d(&src);
+  EXPECT_FLOAT_EQ(d.offset(), 0.0f);
+  src.current = {100.0f, 200.0f, 300.0f};
+  auto out = d.get_powermeter_watts();
+  ASSERT_EQ(out.size(), 3u);
+  EXPECT_FLOAT_EQ(out[0], 100.0f);
+  EXPECT_FLOAT_EQ(out[1], 200.0f);
+  EXPECT_FLOAT_EQ(out[2], 300.0f);
+}
+
+TEST(DynamicOffset, AppliesOffsetToEveryPhase) {
+  StubSource src;
+  DynamicOffsetPowermeter d(&src, /*offset=*/500.0f);
+  src.current = {100.0f, 200.0f, 300.0f};
+  auto out = d.get_powermeter_watts();
+  ASSERT_EQ(out.size(), 3u);
+  EXPECT_FLOAT_EQ(out[0], 600.0f);
+  EXPECT_FLOAT_EQ(out[1], 700.0f);
+  EXPECT_FLOAT_EQ(out[2], 800.0f);
+}
+
+TEST(DynamicOffset, SetOffsetIsLive) {
+  StubSource src;
+  DynamicOffsetPowermeter d(&src);
+  src.current = {1000.0f};
+  EXPECT_FLOAT_EQ(vsum(d.get_powermeter_watts()), 1000.0f);
+  d.set_offset(-250.0f);
+  EXPECT_FLOAT_EQ(d.offset(), -250.0f);
+  EXPECT_FLOAT_EQ(vsum(d.get_powermeter_watts()), 750.0f);
+  d.set_offset(0.0f);
+  EXPECT_FLOAT_EQ(vsum(d.get_powermeter_watts()), 1000.0f);
+}
+
+TEST(DynamicOffset, RawReadingIsUntouched) {
+  StubSource src;
+  DynamicOffsetPowermeter d(&src, /*offset=*/500.0f);
+  src.current = {100.0f};
+  // Control path is shifted; the raw path passes through the wrapper base to
+  // the source, so it still matches the physical meter.
+  EXPECT_FLOAT_EQ(vsum(d.get_powermeter_watts()), 600.0f);
+  EXPECT_FLOAT_EQ(vsum(d.get_powermeter_watts_raw()), 100.0f);
 }
 
 }  // namespace

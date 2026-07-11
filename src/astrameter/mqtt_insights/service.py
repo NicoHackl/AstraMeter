@@ -354,6 +354,13 @@ class MqttInsightsService:
                     # device-level button keeps the plain {base}/ct002/<dev>/set.
                     await client.subscribe(f"{cfg.base_topic}/ct002/+/consumer/+/+/set")
                     await client.subscribe(f"{cfg.base_topic}/ct002/+/set")
+                    # Live per-powermeter offset control (watts). Retained by the
+                    # publisher, so the broker redelivers it right after we
+                    # subscribe and the offset is restored on restart.
+                    if self._powermeters:
+                        await client.subscribe(
+                            f"{cfg.base_topic}/powermeter/+/offset/set"
+                        )
 
                     # Subscribe to Marstek App topics for every registered
                     # binding. Store the client so register_marstek() called
@@ -666,6 +673,8 @@ class MqttInsightsService:
         base = self._config.base_topic
         prefix = f"{base}/ct002/"
         suffix = "/set"
+        pm_prefix = f"{base}/powermeter/"
+        pm_suffix = "/offset/set"
 
         async for message in client.messages:
             topic_str = str(message.topic)
@@ -673,6 +682,16 @@ class MqttInsightsService:
                 "marstek_energy/"
             ):
                 await self._handle_marstek_message(client, message)
+                continue
+            if topic_str.startswith(pm_prefix) and topic_str.endswith(pm_suffix):
+                pm_id = topic_str[len(pm_prefix) : -len(pm_suffix)]
+                try:
+                    raw = message.payload
+                    payload_str = raw.decode() if isinstance(raw, bytes) else str(raw)
+                except UnicodeDecodeError:
+                    logger.warning("Invalid command payload on %s", topic_str)
+                    continue
+                self._handle_powermeter_offset_command(pm_id, payload_str)
                 continue
             if not topic_str.startswith(prefix) or not topic_str.endswith(suffix):
                 continue
@@ -984,6 +1003,60 @@ class MqttInsightsService:
             else:
                 logger.debug("No active_control handler for device %s", device_id)
 
+    # ── Powermeter offset command ─────────────────────────────────────
+
+    @staticmethod
+    def _offset_wrapper_in(pm: Any) -> Any | None:
+        """Walk a powermeter's decorator chain to its DynamicOffsetPowermeter.
+
+        The live-offset wrapper sits deep in the chain (below the outer
+        health-tracking wrapper the service stores); follow ``wrapped_powermeter``
+        links looking for its marker. Returns ``None`` if the chain has none.
+        """
+        node: Any = pm
+        seen = 0
+        while node is not None and seen < 32:
+            if getattr(node, "is_dynamic_offset", False):
+                return node
+            node = getattr(node, "wrapped_powermeter", None)
+            seen += 1
+        return None
+
+    def _find_offset_wrapper(self, pm_id: str) -> Any | None:
+        """Locate the DynamicOffsetPowermeter for the sanitized ``pm_id``.
+
+        Powermeters are stored as their outermost health-tracking wrapper. Match
+        on the sanitized section name (how the health topic is keyed) and then
+        walk the chain for the offset wrapper.
+        """
+        for pm in self._powermeters:
+            name = getattr(pm, "name", "") or ""
+            if name and _sanitize_id(name) == pm_id:
+                return self._offset_wrapper_in(pm)
+        return None
+
+    def _handle_powermeter_offset_command(self, pm_id: str, payload: str) -> None:
+        # An empty payload clears a retained command — leave the offset as-is
+        # (its current value stays in effect) rather than logging a warning.
+        if not payload.strip():
+            return
+        try:
+            offset = float(payload)
+        except ValueError:
+            logger.warning("Invalid offset value for powermeter %s: %r", pm_id, payload)
+            return
+        if not math.isfinite(offset) or not -10000 <= offset <= 10000:
+            logger.warning("Out-of-range offset for powermeter %s: %s", pm_id, offset)
+            return
+        target = self._find_offset_wrapper(pm_id)
+        if target is None:
+            logger.debug("No offset-capable powermeter for %s", pm_id)
+            return
+        try:
+            target.set_offset(offset)
+        except Exception:
+            logger.exception("Offset handler error for powermeter %s", pm_id)
+
     # ── Powermeter health ─────────────────────────────────────────────
 
     async def _powermeter_health_loop(self, client: aiomqtt.Client) -> None:
@@ -1002,8 +1075,10 @@ class MqttInsightsService:
                 if not name:
                     continue
                 online, values = await self._powermeter_status(pm)
+                offset_wrapper = self._offset_wrapper_in(pm)
+                offset = offset_wrapper.offset if offset_wrapper is not None else 0.0
                 await self._publish_powermeter_health(
-                    client, base, cfg, name, online, values
+                    client, base, cfg, name, online, values, offset
                 )
             await asyncio.sleep(interval)
 
@@ -1067,9 +1142,14 @@ class MqttInsightsService:
         name: str,
         online: bool,
         values: list[float] | None,
+        offset: float = 0.0,
     ) -> None:
         pm_id = _sanitize_id(name)
-        state = {"online": online, "grid_power": self._grid_power_payload(values)}
+        state = {
+            "online": online,
+            "grid_power": self._grid_power_payload(values),
+            "offset": offset,
+        }
         await client.publish(
             f"{base}/powermeter/{pm_id}",
             payload=json.dumps(state).encode(),

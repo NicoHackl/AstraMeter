@@ -15,6 +15,7 @@
 #include "esphome/components/socket/socket.h"
 
 #include "balancer.h"
+#include "dynamic_offset.h"
 #include "pid.h"
 #include "sensor_backed.h"
 #include "wrapper_base.h"
@@ -112,6 +113,14 @@ class CT002Component : public Component {
   void set_wifi_rssi(int v) { this->wifi_rssi_ = v; }
   void set_udp_port(uint16_t v) { this->udp_port_ = v; }
   void set_active_control(bool v) { this->active_control_ = v; }
+  // Live grid-power offset (watts) added to every phase on top of any native
+  // `sensor: filters: offset:`. Set over MQTT / the HA "Grid Offset" Number.
+  // Safe to call before setup(): the value is remembered and applied to the
+  // pipeline wrapper once it's built.
+  void set_grid_offset(float v) {
+    this->grid_offset_ = v;
+    if (this->offset_wrapper_ != nullptr) this->offset_wrapper_->set_offset(v);
+  }
   void set_max_sensor_age_ms(uint32_t v) { this->max_sensor_age_ms_ = v; }
 #ifdef USE_CT002_TEST_HOOKS
   // Enable the test-control UDP server on this port. Only compiled when the
@@ -207,6 +216,10 @@ class CT002Component : public Component {
   // Used by mqtt_insights for the device-level "active_control" entity so
   // HA reflects the configured state instead of always reading "running".
   bool active_control() const { return this->active_control_; }
+  // Live grid-power offset (watts). Read by mqtt_insights for the device-level
+  // "grid_offset" state so the HA "Grid Offset" Number reflects the current
+  // value.
+  float grid_offset() const { return this->grid_offset_; }
   // Fixed TTL (seconds) after which a silent consumer is evicted from the
   // tracking map. When never called (the YAML default), eviction is adaptive
   // — ~2 missed poll cycles per consumer — matching Python's
@@ -325,6 +338,10 @@ class CT002Component : public Component {
   int wifi_rssi_{-50};
   uint16_t udp_port_{12345};
   bool active_control_{true};
+  // Live grid-power offset (watts), mirrored onto offset_wrapper_ once the
+  // pipeline is built. Remembered here so set_grid_offset() works pre-setup
+  // (e.g. a retained MQTT command redelivered on connect).
+  float grid_offset_{0.0f};
   uint32_t max_sensor_age_ms_{30000};
   // Fixed eviction TTL for stale consumers, in seconds (Python:
   // consumer_ttl). Unset (default) = adaptive per-consumer TTL derived from
@@ -357,6 +374,9 @@ class CT002Component : public Component {
   // Pipeline: head is SensorBackedPowermeter, then optional wrappers.
   std::vector<std::unique_ptr<Powermeter>> pipeline_;
   Powermeter *pipeline_head_{nullptr};
+  // Non-owning pointer into pipeline_ for the live grid-offset wrapper, so
+  // set_grid_offset() can update it after construction.
+  DynamicOffsetPowermeter *offset_wrapper_{nullptr};
 
   // Pending wrapper configs captured before setup() — applied at setup()
   // time when the SensorBackedPowermeter exists.

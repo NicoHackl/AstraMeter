@@ -2,6 +2,7 @@
 
 ## Next
 
+- **Added** a live, adjustable grid-power offset you can change on the fly over MQTT or from Home Assistant — without editing config or restarting. It's added on top of any fixed offset you've already set, so you can e.g. reserve some grid headroom for sudden loads or nudge toward self-consumption at certain times of day, then dial it back. In Home Assistant it appears as an **Offset** number on each power meter (Python app) or a **Grid Offset** number on the CT002 device (ESPHome), and the value is remembered across restarts ([#556](https://github.com/tomquist/astrameter/discussions/556)).
 - **Fixed** active control silently breaking until a restart after a single invalid grid reading (a NaN value, e.g. from a briefly unavailable ESPHome sensor or a glitchy meter source): the controller could get stuck sending every battery a small constant discharge command regardless of the actual grid. An invalid reading is now treated like an unavailable meter — batteries hold their output for that poll and normal control resumes with the next good reading ([#548](https://github.com/tomquist/astrameter/issues/548), [#550](https://github.com/tomquist/astrameter/pull/550)).
 
 
