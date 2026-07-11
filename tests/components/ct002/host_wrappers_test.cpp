@@ -252,15 +252,18 @@ TEST(DynamicOffset, DefaultOffsetIsIdentity) {
   EXPECT_FLOAT_EQ(out[2], 300.0f);
 }
 
-TEST(DynamicOffset, AppliesOffsetToEveryPhase) {
+TEST(DynamicOffset, OffsetIsTotalSpreadAcrossPhases) {
+  // A single offset is a *total* adjustment: the summed reading shifts by
+  // exactly the offset (spread evenly), not by N× on an N-phase meter.
   StubSource src;
-  DynamicOffsetPowermeter d(&src, /*offset=*/500.0f);
+  DynamicOffsetPowermeter d(&src, /*offset=*/300.0f);
   src.current = {100.0f, 200.0f, 300.0f};
   auto out = d.get_powermeter_watts();
   ASSERT_EQ(out.size(), 3u);
-  EXPECT_FLOAT_EQ(out[0], 600.0f);
-  EXPECT_FLOAT_EQ(out[1], 700.0f);
-  EXPECT_FLOAT_EQ(out[2], 800.0f);
+  EXPECT_FLOAT_EQ(out[0], 200.0f);  // +100 per phase
+  EXPECT_FLOAT_EQ(out[1], 300.0f);
+  EXPECT_FLOAT_EQ(out[2], 400.0f);
+  EXPECT_FLOAT_EQ(vsum(out), 900.0f);  // total shifted by exactly 300
 }
 
 TEST(DynamicOffset, SetOffsetIsLive) {

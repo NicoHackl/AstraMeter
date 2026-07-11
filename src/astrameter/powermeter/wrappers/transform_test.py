@@ -15,11 +15,12 @@ def mock_powermeter():
     return pm
 
 
-async def test_transformed_raw_matches_wrapped_without_offset(mock_powermeter):
+async def test_transformed_raw_ignores_transform(mock_powermeter):
     mock_powermeter.get_powermeter_watts.return_value = [110.0, 210.0, 310.0]
     mock_powermeter.get_powermeter_watts_raw.return_value = [100.0, 200.0, 300.0]
-    t = TransformedPowermeter(mock_powermeter, [10.0], [1.0])
-    assert await t.get_powermeter_watts() == [120.0, 220.0, 320.0]
+    t = TransformedPowermeter(mock_powermeter, [30.0], [1.0])
+    # Single offset 30 is a total: spread +10 per phase over 3 phases.
+    assert await t.get_powermeter_watts() == pytest.approx([120.0, 220.0, 320.0])
     assert await t.get_powermeter_watts_raw() == [100.0, 200.0, 300.0]
     mock_powermeter.get_powermeter_watts_raw.assert_awaited_once()
 
@@ -36,10 +37,20 @@ async def test_identity_three_phase(mock_powermeter):
     assert await t.get_powermeter_watts() == [100.0, 200.0, 300.0]
 
 
-async def test_offset_only_broadcast(mock_powermeter):
+async def test_single_offset_is_total_spread_across_phases(mock_powermeter):
+    """A single POWER_OFFSET is a total watts adjustment: the summed reading
+    shifts by exactly the offset (spread evenly), not by Nx on N phases."""
     mock_powermeter.get_powermeter_watts.return_value = [100.0, 200.0, 300.0]
-    t = TransformedPowermeter(mock_powermeter, [10.0], [1.0])
-    assert await t.get_powermeter_watts() == [110.0, 210.0, 310.0]
+    t = TransformedPowermeter(mock_powermeter, [30.0], [1.0])
+    result = await t.get_powermeter_watts()
+    assert result == pytest.approx([110.0, 210.0, 310.0])
+    assert sum(result) == pytest.approx(600.0 + 30.0)
+
+
+async def test_single_offset_single_phase_applied_once(mock_powermeter):
+    mock_powermeter.get_powermeter_watts.return_value = [1050.0]
+    t = TransformedPowermeter(mock_powermeter, [50.0], [1.0])
+    assert await t.get_powermeter_watts() == [1100.0]
 
 
 async def test_negative_offset(mock_powermeter):
@@ -85,8 +96,9 @@ async def test_per_phase_multipliers(mock_powermeter):
 
 async def test_mixed_single_offset_per_phase_multipliers(mock_powermeter):
     mock_powermeter.get_powermeter_watts.return_value = [100.0, 200.0, 300.0]
-    t = TransformedPowermeter(mock_powermeter, [10.0], [1.0, 2.0, 3.0])
-    assert await t.get_powermeter_watts() == [110.0, 410.0, 910.0]
+    # Single offset 30 → +10 per phase (total spread over 3); multipliers per phase.
+    t = TransformedPowermeter(mock_powermeter, [30.0], [1.0, 2.0, 3.0])
+    assert await t.get_powermeter_watts() == pytest.approx([110.0, 410.0, 910.0])
 
 
 async def test_phase_count_mismatch_does_not_crash(mock_powermeter):
@@ -101,8 +113,9 @@ async def test_phase_count_mismatch_does_not_crash(mock_powermeter):
 async def test_int_values_from_powermeter(mock_powermeter):
     """Many powermeters return int values; transform should handle them."""
     mock_powermeter.get_powermeter_watts.return_value = [100, 200]
-    t = TransformedPowermeter(mock_powermeter, [0.5], [1.0])
-    assert await t.get_powermeter_watts() == [100.5, 200.5]
+    # Single offset 1.0 spread over 2 phases → +0.5 each.
+    t = TransformedPowermeter(mock_powermeter, [1.0], [1.0])
+    assert await t.get_powermeter_watts() == pytest.approx([100.5, 200.5])
 
 
 async def test_wait_for_message_passthrough(mock_powermeter):

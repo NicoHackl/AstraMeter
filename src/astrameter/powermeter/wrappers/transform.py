@@ -9,11 +9,15 @@ class TransformedPowermeter(PowermeterWrapper):
     A wrapper around a powermeter that applies a linear transformation
     (multiplier and offset) to each returned power value.
 
-    Formula per value: value * multiplier + offset
+    Per-value multiplier is applied directly (``value * multiplier``); it is a
+    per-reading ratio, so a single ``POWER_MULTIPLIER`` scales every phase.
 
-    Supports per-phase configuration: if a single multiplier/offset is given,
-    it applies to all phases. If multiple values are given, each applies to
-    the corresponding phase.
+    The **offset** is additive watts. A *single* ``POWER_OFFSET`` is treated as
+    a **total** adjustment and spread evenly across the phases, so the summed
+    grid reading (what active control targets) shifts by exactly that value —
+    not by Nx the value on an N-phase meter. A *per-phase list* is taken
+    literally: each value applies to its phase (use this for per-phase
+    calibration). Single-phase meters are unaffected either way.
     """
 
     def __init__(
@@ -33,10 +37,18 @@ class TransformedPowermeter(PowermeterWrapper):
         self._multipliers_mismatch_warned = False
 
     def _apply_transform(self, values: list[float]) -> list[float]:
+        # A single offset is a *total* watts adjustment spread evenly across the
+        # phases (so the summed reading shifts by exactly that value); a per-phase
+        # list is applied literally, one value per phase.
+        single_offset = len(self.offsets) == 1
+        n = len(values)
         result = []
         for i, value in enumerate(values):
             multiplier = self.multipliers[i % len(self.multipliers)]
-            offset = self.offsets[i % len(self.offsets)]
+            if single_offset:
+                offset = self.offsets[0] / n if n else 0.0
+            else:
+                offset = self.offsets[i % len(self.offsets)]
             result.append(value * multiplier + offset)
 
         if len(self.offsets) > 1 and len(self.offsets) != len(values):

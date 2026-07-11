@@ -189,7 +189,7 @@ Availability companion:
 |---|---|---|
 | `online` | bool | `false` when the source stops delivering fresh, usable readings (stalled push stream, or a polling source whose reads fail) — alert on this to catch a meter that has gone quiet while AstraMeter keeps running on its last cached value. |
 | `grid_power` | object | Latest per-phase reading and `total` (watts). Single-phase meters leave `l2`/`l3` `null`. |
-| `offset` | number | The live, MQTT-settable offset (watts) currently added to every phase, **on top of** any static `POWER_OFFSET`. `0` when unset. See the [offset command topic](#command-topics-set-values-from-any-mqtt-client) to change it. |
+| `offset` | number | The live, MQTT-settable offset (watts) that shifts the total grid reading, **on top of** any static `POWER_OFFSET`. `0` when unset. See the [offset command topic](#command-topics-set-values-from-any-mqtt-client) to change it. |
 
 Push sources (HomeWizard, MQTT, SMA, Home Assistant) report stream state
 directly; polling sources reflect the control loop, or are probed about once per
@@ -221,13 +221,13 @@ Per-device, JSON body on `{base}/ct002/{did}/set`:
 |---|---|
 | `{"active_control": true}` / `{"active_control": false}` | Turn active control on (compute per-battery targets) or off (relay mode — raw aggregate forwarded, the live equivalent of `ACTIVE_CONTROL = False`). |
 | `{"force_rotation": true}` | Immediately rotate the efficiency window to the next battery. |
-| `{"grid_offset": <w>}` | **ESPHome only.** Live grid-power offset (watts, −10000…10000) added to every phase, on top of any native `sensor: filters: offset:`. See [per-powermeter offset](#per-powermeter-offset) for the Python equivalent. |
+| `{"grid_offset": <w>}` | **ESPHome only.** Live grid-power offset (watts, −10000…10000) that shifts the total grid reading, on top of any native `sensor: filters: offset:`. See [per-powermeter offset](#per-powermeter-offset) for the Python equivalent. |
 
 Per-powermeter offset (one scalar), on `{base}/powermeter/{pm}/offset/set`:
 
 | Topic | Payload | Effect |
 |---|---|---|
-| `{base}/powermeter/{pm}/offset/set` | number, −10000…10000 | Live offset (watts) added to every phase of powermeter `{pm}`, **in addition to** any static `POWER_OFFSET` from config. `0` (or an empty payload, which leaves the current value) is a no-op. Retained by the publisher, so it is restored on restart. Surfaced in Home Assistant as the powermeter device's **Offset** number. |
+| `{base}/powermeter/{pm}/offset/set` | number, −10000…10000 | Live offset (watts) that shifts powermeter `{pm}`'s total grid reading (spread evenly across phases), **in addition to** any static `POWER_OFFSET` from config. `0` (or an empty payload, which leaves the current value) is a no-op. Retained by the publisher, so it is restored on restart. Surfaced in Home Assistant as the powermeter device's **Offset** number. |
 
 > **Python vs ESPHome.** In the Python app the offset lives on the *powermeter*
 > (`{base}/powermeter/{pm}/offset/set`), because that's where grid readings enter.
@@ -274,8 +274,9 @@ grouping also works in standalone/Docker). It carries:
   `online` field of `{base}/powermeter/{pm}`;
 - **Power**, **Power L1**, **Power L2**, **Power L3** sensors backed by that
   topic's `grid_power` (single-phase meters leave L2/L3 empty);
-- an **Offset** number (config) that adds a live offset (watts) to every phase
-  on top of any static `POWER_OFFSET` — retained, so it survives a restart.
+- an **Offset** number (config) that shifts the total grid reading by a live
+  offset (watts) on top of any static `POWER_OFFSET` — retained, so it survives a
+  restart.
   Handy for e.g. reserving grid headroom for sudden loads or biasing toward
   self-consumption at certain times without editing config. Backed by the
   `offset` field and the `{base}/powermeter/{pm}/offset/set` command topic.

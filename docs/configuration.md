@@ -101,14 +101,23 @@ For example, if your meter reads 1050W and you set `POWER_MULTIPLIER=0.95` and
 Both settings are optional and can be added to any powermeter section:
 
 - `POWER_MULTIPLIER` — Scales each power value. Default: 1 (no scaling).
-- `POWER_OFFSET` — Added to each power value after the multiplier is applied.
-  Default: 0 (no offset).
+- `POWER_OFFSET` — A watts adjustment applied after the multiplier. Default: 0
+  (no offset).
 
-For three-phase meters, you can specify a single value (applied to all phases) or
-comma-separated values (one per phase):
+For three-phase meters, `POWER_OFFSET` behaves differently depending on whether
+you give **one value or one per phase**:
+
+- **A single value** is treated as a **total** adjustment and spread evenly
+  across the phases, so your summed grid reading shifts by exactly that amount
+  (e.g. `POWER_OFFSET = -60` on three phases shifts the total by −60 W, i.e. −20 W
+  per phase). Single-phase meters just apply the value once.
+- **A comma-separated list** is applied literally, one value per phase — use this
+  for per-phase calibration.
+
+`POWER_MULTIPLIER` always applies per value (a single value scales every phase).
 
 ```ini
-# Single value — applies to all phases
+# Single value — total offset spread across phases
 [SHELLY_1]
 TYPE = 1PM
 IP = 192.168.1.100

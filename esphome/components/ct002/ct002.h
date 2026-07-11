@@ -113,8 +113,9 @@ class CT002Component : public Component {
   void set_wifi_rssi(int v) { this->wifi_rssi_ = v; }
   void set_udp_port(uint16_t v) { this->udp_port_ = v; }
   void set_active_control(bool v) { this->active_control_ = v; }
-  // Live grid-power offset (watts) added to every phase on top of any native
-  // `sensor: filters: offset:`. Set over MQTT / the HA "Grid Offset" Number.
+  // Live grid-power offset (watts) shifting the total grid reading (spread
+  // across phases) on top of any native `sensor: filters: offset:`. Set over
+  // MQTT / the HA "Grid Offset" Number.
   // Safe to call before setup(): the value is remembered and applied to the
   // pipeline wrapper once it's built.
   void set_grid_offset(float v) {

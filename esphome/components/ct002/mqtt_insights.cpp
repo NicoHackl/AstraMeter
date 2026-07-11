@@ -430,8 +430,8 @@ void MqttInsightsComponent::handle_device_command_(const std::string &payload) {
     } else if (!root["active_control"].isNull()) {
       ESP_LOGW(TAG, "Invalid active_control value in device command");
     }
-    // Live grid-power offset (watts) added to every phase, on top of any
-    // native `sensor: filters: offset:`. Published retained by HA so the
+    // Live grid-power offset (watts) shifting the total grid reading, on top of
+    // any native `sensor: filters: offset:`. Published retained by HA so the
     // choice restores on restart. Range-checked like the consumer scalars.
     auto go = root["grid_offset"];
     if (go.is<float>() || go.is<int>() || go.is<long>()) {

@@ -386,8 +386,9 @@ std::pair<std::string, std::string> build_ct002_device_discovery(
     ac["retain"] = true;
     ac["entity_category"] = "config";
 
-    // Grid Offset number — a live offset (watts) added to every phase on top of
-    // any native `sensor: filters: offset:`, published retained to the device
+    // Grid Offset number — a live offset (watts) that shifts the total grid
+    // reading (spread across phases) on top of any native `sensor: filters:
+    // offset:`, published retained to the device
     // command topic so it survives a restart. ESPHome-only: the Python stack
     // exposes the equivalent on its (Python-only) per-powermeter device instead,
     // since ESPHome has no powermeter layer (see CONTRIBUTING.md).
