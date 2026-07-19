@@ -38,6 +38,21 @@ class Powermeter:
         """
         return await self.get_powermeter_watts()
 
+    async def get_powermeter_watts_unfiltered(self) -> list[float]:
+        """Calibrated per-phase watts with the conditioning filters bypassed.
+
+        Sits between :meth:`get_powermeter_watts` (full pipeline) and
+        :meth:`get_powermeter_watts_raw` (physical values): calibration
+        (offset/multiplier) and throttling still apply, but the control-loop
+        conditioning wrappers (Hampel, smoothing, deadband, PID) are skipped.
+        Served to CT002 consumers in inspection mode, whose firmware phase
+        self-diagnosis perturbs its own output and must see the genuine
+        per-phase response — exactly the signal an outlier filter erases
+        (issue #559).  A real CT serves unconditioned measurements.  Defaults
+        to the normal read for sources with no inner pipeline.
+        """
+        return await self.get_powermeter_watts()
+
     def stream_online(self) -> bool | None:
         """Health hook for the MQTT Insights "Online" diagnostic sensor.
 

@@ -616,6 +616,29 @@ def test_inspection_reporter_lands_in_x_bucket(backend) -> None:
 
 
 @pytest.mark.timeout(30, func_only=True)
+def test_inspection_reporter_excluded_from_active_pool(backend) -> None:
+    """Under active control an inspection ('0') reporter must not join the
+    distribution pool: it is never sent a target, so counting it dilutes the
+    steered battery's share (issue #559).
+
+    Grid is set below the ramp-pacing base step so the wire target is the
+    raw fair share: 24 W alone vs 12 W if the phantom still split the pool.
+    """
+    backend.set_clock(60000)
+    backend.set_grid(24)  # importing 24 W on phase A
+    rx = backend.poll("C7C7C7C7C7C7", "0", 0)  # mid phase-detection
+    assert rx is not None, f"[{backend.name}] no response to inspecting battery"
+
+    ry = backend.poll("D8D8D8D8D8D8", "A", 0)
+    assert ry is not None, f"[{backend.name}] no response to steered battery"
+    assert int(ry[4]) == 24, (
+        f"[{backend.name}] steered battery must get the full 24 W residual "
+        f"(12 W would mean the inspecting battery still splits the pool), "
+        f"got {ry[4]}"
+    )
+
+
+@pytest.mark.timeout(30, func_only=True)
 def test_combined_phase_d_lands_in_abc_bucket(backend) -> None:
     """A combined-mode (phase 'D') reporter populates the ABC bucket and
     ABC_chrg_nb instead of phase A (issue #460)."""

@@ -120,7 +120,10 @@ THROTTLE_INTERVAL = 0
 ## switching its inverter off at 0 W and falling asleep under high PV surplus.
 ## Only affects DC-only batteries that have no inverter of their own (Venus and
 ## Jupiter are unaffected); 0 disables (default). Can also be set per battery from
-## Home Assistant. Recommended >= 20.
+## Home Assistant. Set at or above your micro-inverter's minimum operating power
+## (typically 50-100 W for the 600-800 W class, e.g. ~80 W for a Marstek HMI-1) —
+## a floor below the inverter minimum means the inverter switches off anyway
+## while the battery keeps chasing an unreachable output.
 # MIN_DC_OUTPUT = 0
 
 ## --- Saturation detection (full/empty battery handling) ---

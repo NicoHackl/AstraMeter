@@ -19,6 +19,7 @@ from astrameter.config.config_loader import (
 )
 from astrameter.config.logger import logger, setLogLevel
 from astrameter.ct002 import CT002, UDP_PORT
+from astrameter.ct002.protocol import is_committed_phase
 from astrameter.marstek_api import (
     MarstekApiError,
     MarstekConfig,
@@ -61,6 +62,8 @@ def get_ct_section(device_type: str, cfg: configparser.ConfigParser) -> str:
 async def read_ct_powermeter(
     addr: tuple[str, int],
     powermeters: list[tuple[Powermeter, ClientFilter, bool]],
+    *,
+    unfiltered: bool = False,
 ) -> list[float] | None:
     """Pick the powermeter matching *addr* and return up to three phase values.
 
@@ -68,6 +71,11 @@ async def read_ct_powermeter(
     powermeter has ``WAIT_FOR_NEXT_MESSAGE`` enabled. A timeout there is
     swallowed so the cached value is still served — `update_readings`
     callers should never see a stale-meter `TimeoutError`.
+
+    With ``unfiltered=True`` the conditioning filters (Hampel, smoothing,
+    deadband, PID) are bypassed while calibration and throttling still apply
+    — used for inspection-mode consumers whose phase self-diagnosis needs the
+    unconditioned per-phase signal (issue #559).
     """
     powermeter = None
     wait_for_next = False
@@ -88,7 +96,10 @@ async def read_ct_powermeter(
                 "serving last known value",
                 _powermeter_log_name(powermeter),
             )
-    values = await powermeter.get_powermeter_watts()
+    if unfiltered:
+        values = await powermeter.get_powermeter_watts_unfiltered()
+    else:
+        values = await powermeter.get_powermeter_watts()
     value1 = values[0] if len(values) > 0 else 0
     value2 = values[1] if len(values) > 1 else 0
     value3 = values[2] if len(values) > 2 else 0
@@ -320,8 +331,15 @@ async def run_device(
             reset_fn=lambda: _reset_all_powermeters(powermeters),
         )
 
-        async def update_readings(addr, _fields=None, _consumer_id=None):
-            return await read_ct_powermeter(addr, powermeters)
+        async def update_readings(addr, fields=None, _consumer_id=None):
+            # An inspection-mode requester (no committed phase in the request's
+            # 5th field) is running its firmware phase self-diagnosis and needs
+            # the unconditioned per-phase signal — serve it the unfiltered
+            # read (issue #559).
+            phase = fields[4] if fields and len(fields) > 4 else ""
+            return await read_ct_powermeter(
+                addr, powermeters, unfiltered=not is_committed_phase(phase)
+            )
 
         device.before_send = update_readings
 

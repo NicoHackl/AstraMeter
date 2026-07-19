@@ -103,3 +103,14 @@ async def test_lifecycle_delegates_to_inner():
     await pm.stop()
     inner.start.assert_awaited_once()
     inner.stop.assert_awaited_once()
+
+
+async def test_unfiltered_read_also_tracked():
+    inner = Mock(spec=Powermeter)
+    inner.get_powermeter_watts_unfiltered = AsyncMock(return_value=[7.0])
+    pm = _make(inner)
+
+    assert await pm.get_powermeter_watts_unfiltered() == [7.0]
+    assert pm.last_outcome_ok is True
+    # _last_values keeps its processed-read semantics.
+    assert pm.last_values is None

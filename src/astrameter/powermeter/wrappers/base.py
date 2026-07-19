@@ -13,6 +13,13 @@ class PowermeterWrapper(Powermeter):
     async def get_powermeter_watts_raw(self) -> list[float]:
         return await self.wrapped_powermeter.get_powermeter_watts_raw()
 
+    async def get_powermeter_watts_unfiltered(self) -> list[float]:
+        # Default: this wrapper is a conditioning filter — skip it entirely so
+        # its stateful internals (EMA, rolling windows, ...) are untouched by
+        # unfiltered reads.  Wrappers that must stay on the unfiltered path
+        # (calibration, throttling, health tracking) override this.
+        return await self.wrapped_powermeter.get_powermeter_watts_unfiltered()
+
     def stream_online(self) -> bool | None:
         return self.wrapped_powermeter.stream_online()
 

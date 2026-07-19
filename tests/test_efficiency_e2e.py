@@ -425,10 +425,30 @@ class TestEfficiencyE2E:
             # up under a slower poll cadence leaves a larger residual grid error
             # transiently — and on the C++ emulator the candidate can briefly be
             # driven to charge — before coverage catches up.
+            #
+            # The settle check runs until the error holds inside the bound for
+            # three consecutive samples rather than over a fixed window: since
+            # inspection ('0') reporters are excluded from the distribution
+            # pool (issue #559), each battery enters the pool on its first
+            # *committed* poll — one poll later than before — which shifts the
+            # priority/demand seeding by a tick and with it each backend's
+            # probe/rotation phase. A fixed sampling window can no longer sit
+            # between the (differently-timed) transients of both backends; the
+            # reach-settled formulation asserts the same convergence without
+            # depending on that alignment. A genuinely failed handoff (the
+            # sustained 100-250 W residual a hunting loop holds) never
+            # produces three consecutive settled samples.
             grid_errors: list[float] = []
-            for _ in range(12):
+            settled_run = 0
+            for _ in range(30):
                 await h.step()
-                grid_errors.append(abs(h.grid_total()))
+                err = abs(h.grid_total())
+                grid_errors.append(err)
+                settled_run = settled_run + 1 if err < 60 else 0
+                # Sample at least the original 12-step window so the
+                # boundedness assert below still covers the main transient.
+                if settled_run >= 3 and len(grid_errors) >= 12:
+                    break
 
             # Coverage stays with the pool throughout the slow-poll probe: the
             # demand is served either by the previous battery (probe still
@@ -453,13 +473,14 @@ class TestEfficiencyE2E:
                 f"(max={max(grid_errors):.0f}W). Powers: {h.battery_powers()}"
             )
             # ... and it converges back toward the deadband once coverage
-            # catches up (a clean monotonic descent, e.g. [45, 30, 7] W). The
-            # stronger default oscillation damping lets the slow-poll probe take
-            # a cycle longer to settle, so the tail of that descent sits a little
-            # higher than the old <30 W bound — still nowhere near the sustained
-            # 100-250 W a genuinely failed/hunting handoff holds (cf. the bounded
-            # bursts in test_probe_acceptance_avoids_large_export_spike).
-            assert max(grid_errors[-3:]) < 60, (
+            # catches up: the loop above must have reached three consecutive
+            # settled samples (<60 W) within its step budget. The bound sits
+            # above the old <30 W settle convention because the stronger
+            # default oscillation damping lets the slow-poll probe take a
+            # cycle longer to descend — still nowhere near the sustained
+            # 100-250 W a genuinely failed/hunting handoff holds (cf. the
+            # bounded bursts in test_probe_acceptance_avoids_large_export_spike).
+            assert settled_run >= 3, (
                 f"Mixed poll intervals should settle (last errors "
                 f"{[round(e) for e in grid_errors[-3:]]}W). Powers: {h.battery_powers()}"
             )

@@ -65,6 +65,58 @@ class TestActiveControl:
         assert list(out) == [400, 0, 0]
 
 
+class TestInspectionPoolExclusion:
+    """Inspection-mode ('0') reporters must not join the distribution pool.
+
+    They are never sent targets (the handler serves them the raw relay path)
+    and never accrue saturation, so counting them dilutes — or, combined with
+    a saturated real consumer, starves — the steerable pool (issue #559).
+    """
+
+    def test_inspection_reporter_does_not_dilute_share(self):
+        device = _ct002(active_control=True, fair_distribution=False)
+        device._update_consumer_report("steered", "A", 0)
+        device._update_consumer_report("inspecting", "0", 0)
+        out = device._compute_smooth_target([400, 0, 0], "steered")
+        # Full residual — not halved by the unsteerable phantom.
+        assert out[0] == 400
+        assert out[1] == 0
+        assert out[2] == 0
+
+    def test_issue_559_saturated_consumer_not_pinned_at_min_dc_floor(self):
+        # The #559 deadlock: a B2500 whose report is stuck at 0 saturates;
+        # with an inspection co-reporter holding a permanently-healthy pool
+        # slot its fair share collapsed to ~1% of an 802 W import, and the
+        # MIN_DC_OUTPUT floor pinned it at 20 W forever.  With the phantom
+        # excluded, the lone consumer's relative share cancels the
+        # saturation weighting and it is commanded the full residual.
+        device = _ct002(
+            active_control=True,
+            fair_distribution=True,
+            saturation_detection=True,
+            saturation_alpha=1.0,
+            min_target_for_saturation=20,
+            min_dc_output=20,
+        )
+        device._update_consumer_report("steered", "A", 0, device_type="HMJ-2")
+        device._update_consumer_report("inspecting", "0", 0, device_type="HMJ-2")
+        device._balancer._get_consumer("steered").last_intent_reading = 400
+        # The meter values logged in issue #559 (802 W net import).
+        out = device._compute_smooth_target([1349, 71, -618], "steered")
+        assert out[0] == 802
+        assert out[1] == 0
+        assert out[2] == 0
+
+    def test_force_rotation_excludes_inspection_reporter(self):
+        device = _ct002(active_control=True)
+        device._update_consumer_report("a", "A", 0)
+        device._update_consumer_report("b", "B", 0)
+        device._update_consumer_report("inspecting", "0", 0)
+        device.force_efficiency_rotation()
+        assert "inspecting" not in device._balancer._priority
+        assert set(device._balancer._priority) == {"a", "b"}
+
+
 class TestFairDistribution:
     """Tests for fair load distribution across consumers."""
 

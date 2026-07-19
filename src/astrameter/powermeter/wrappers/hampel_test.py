@@ -23,6 +23,9 @@ class FakePowermeter:
     async def get_powermeter_watts_raw(self) -> list[float]:
         return list(self._values)
 
+    async def get_powermeter_watts_unfiltered(self) -> list[float]:
+        return list(self._values)
+
     async def wait_for_message(self, timeout=5):
         pass
 
@@ -269,3 +272,22 @@ class TestHampelPowermeter:
         await hp.wait_for_message(timeout=1)
         hp.reset()
         assert fake.reset_count == 1
+
+
+class TestHampelUnfiltered:
+    @pytest.mark.asyncio
+    async def test_unfiltered_bypasses_filter_and_leaves_state_untouched(self):
+        fake = FakePowermeter()
+        hp = HampelPowermeter(fake, window=5, n_sigma=3.0)
+        for v in [100.0, 102.0, 98.0, 101.0, 99.0]:
+            await _push(hp, fake, [v])
+        window_before = list(hp._window)
+
+        # A spike the filtered path would reject passes through untouched...
+        fake.set([5000.0])
+        assert await hp.get_powermeter_watts_unfiltered() == [5000.0]
+        # ...and the rolling window did not advance, so the filtered path
+        # still rejects the same spike afterwards.
+        assert list(hp._window) == window_before
+        filtered = await hp.get_powermeter_watts()
+        assert filtered[0] == pytest.approx(101.0)

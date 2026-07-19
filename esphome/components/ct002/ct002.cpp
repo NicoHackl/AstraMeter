@@ -65,6 +65,12 @@ size_t bucket_index_for_phase(const std::string &phase) {
   return BUCKET_X;
 }
 
+// A phase-committed consumer (A/B/C/D, not the normalized inspection "0")
+// is the only kind active control can steer — see the pool filters below.
+bool phase_committed(const std::string &phase) {
+  return phase == "A" || phase == "B" || phase == "C" || phase == "D";
+}
+
 }  // namespace
 
 // Wall-clock seconds for balancer/saturation accounting. Uses ESPHome's
@@ -259,12 +265,9 @@ void CT002Component::handle_request_(const uint8_t *data, size_t len,
   while (!reported_phase.empty() && std::isspace(static_cast<unsigned char>(reported_phase.back())))
     reported_phase.pop_back();
   // Only an unassigned / diagnostic reporter is inspection mode ("0", empty,
-  // or any other unexpected marker). "A"/"B"/"C" are physical phases and "D"
-  // is combined / whole-home mode (newer Marstek firmware) — all four are
-  // valid, actively-steered phases, so they are NOT inspection. Mirrors
-  // ct002.py _handle_request.
-  const bool in_inspection_mode = reported_phase != "A" && reported_phase != "B" &&
-                                  reported_phase != "C" && reported_phase != "D";
+  // or any other unexpected marker). Mirrors ct002.py _handle_request /
+  // protocol.py is_committed_phase.
+  const bool in_inspection_mode = !phase_committed(reported_phase);
   int reported_power = 0;
   if (fields.size() > 5) {
     // Match Python's parse_int (int()): reject trailing garbage / float
@@ -492,8 +495,13 @@ bool CT002Component::validate_ct_mac_(const std::vector<std::string> &fields) co
 
 ReportMap CT002Component::collect_reports_for_balancer_() const {
   ReportMap out;
+  // Only phase-committed consumers join the distribution pool.  An
+  // inspection-mode ("0") reporter is never sent a target (it is served the
+  // raw relay path) and never accrues saturation, so keeping it in the pool
+  // allocates fair share to a consumer that cannot be steered — starving
+  // the real consumers (issue #559).  Mirrors Python _compute_smooth_target.
   for (const auto &kv : this->consumers_) {
-    if (kv.second.timestamp > 0.0) {
+    if (kv.second.timestamp > 0.0 && phase_committed(kv.second.phase)) {
       ConsumerReport r;
       r.device_type = kv.second.device_type;
       r.phase = kv.second.phase;
@@ -947,13 +955,16 @@ bool CT002Component::dedup_should_process_(const std::string &consumer_id) {
 void CT002Component::force_balancer_rotation() {
   if (!this->balancer_) return;
   // Mirror Python's force_efficiency_rotation pool filtering: only include
-  // consumers that are reporting AND active AND not under manual override.
+  // consumers that are reporting AND active AND not under manual override
+  // AND phase-committed (an inspection "0" consumer can't hold a rotation
+  // slot it will never be steered into — issue #559).
   // The earlier "all reporting consumers" pool let inactive/manual
   // batteries into the rotation, which the balancer then had to filter
   // out internally — easier to get the pool right at the source.
   std::unordered_set<std::string> pool;
   for (const auto &kv : this->consumers_) {
-    if (kv.second.timestamp > 0.0 && kv.second.active && !kv.second.manual_enabled) {
+    if (kv.second.timestamp > 0.0 && kv.second.active && !kv.second.manual_enabled &&
+        phase_committed(kv.second.phase)) {
       pool.insert(kv.first);
     }
   }

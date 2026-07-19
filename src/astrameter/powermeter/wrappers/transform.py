@@ -66,3 +66,9 @@ class TransformedPowermeter(PowermeterWrapper):
     async def get_powermeter_watts(self) -> list[float]:
         values = await self.wrapped_powermeter.get_powermeter_watts()
         return self._apply_transform(values)
+
+    async def get_powermeter_watts_unfiltered(self) -> list[float]:
+        # Calibration is part of the measurement, not conditioning — it must
+        # apply on the unfiltered path too.
+        values = await self.wrapped_powermeter.get_powermeter_watts_unfiltered()
+        return self._apply_transform(values)

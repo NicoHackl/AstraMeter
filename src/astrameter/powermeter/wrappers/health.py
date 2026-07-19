@@ -57,6 +57,15 @@ class HealthTrackingPowermeter(PowermeterWrapper):
     async def get_powermeter_watts_raw(self) -> list[float]:
         return await self._tracked(self.wrapped_powermeter.get_powermeter_watts_raw)
 
+    async def get_powermeter_watts_unfiltered(self) -> list[float]:
+        # Track unfiltered reads too: while every battery is in inspection
+        # mode these are the only control-path reads, and the health loop
+        # should still see the meter being exercised.  ``_last_values`` keeps
+        # its processed-read semantics and is deliberately not updated here.
+        return await self._tracked(
+            self.wrapped_powermeter.get_powermeter_watts_unfiltered
+        )
+
     async def _tracked(self, fn: Callable[[], Awaitable[list[float]]]) -> list[float]:
         self._last_attempt = self._clock()
         try:

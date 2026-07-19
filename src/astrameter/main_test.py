@@ -114,3 +114,33 @@ def test_resolve_device_config_shellypro3em_expands_to_old_and_new():
     device_types, device_ids = _resolve("shellypro3em")
     assert device_types == ["shellypro3em_old", "shellypro3em_new"]
     assert device_ids == ["shellypro3em-ec4609c439c1", "shellypro3em-ec4609c439c1"]
+
+
+class _CountingStub(_StubPowermeter):
+    """Stub that distinguishes filtered vs unfiltered reads."""
+
+    def __init__(self, values: list[float]):
+        super().__init__(values)
+        self.filtered_reads = 0
+        self.unfiltered_reads = 0
+
+    async def get_powermeter_watts(self) -> list[float]:
+        self.filtered_reads += 1
+        return list(self._values)
+
+    async def get_powermeter_watts_unfiltered(self) -> list[float]:
+        self.unfiltered_reads += 1
+        return list(self._values)
+
+
+async def test_read_ct_powermeter_unfiltered_flag_selects_unfiltered_read():
+    pm = _CountingStub([5.0])
+    powermeters = [(pm, _LOCAL, False)]
+    assert await read_ct_powermeter(("127.0.0.1", 0), powermeters, unfiltered=True) == [
+        5.0,
+        0,
+        0,
+    ]
+    assert (pm.filtered_reads, pm.unfiltered_reads) == (0, 1)
+    assert await read_ct_powermeter(("127.0.0.1", 0), powermeters) == [5.0, 0, 0]
+    assert (pm.filtered_reads, pm.unfiltered_reads) == (1, 1)

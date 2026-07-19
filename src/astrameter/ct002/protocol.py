@@ -35,6 +35,21 @@ RESPONSE_LABELS = [
 ]
 
 
+COMMITTED_PHASES = ("A", "B", "C", "D")
+
+
+def is_committed_phase(phase) -> bool:
+    """True iff *phase* is a committed operating phase.
+
+    ``A``/``B``/``C`` are the physical phases and ``D`` is combined /
+    whole-home mode — all four are valid, actively-steered operating phases.
+    Anything else (``0``, empty, future markers) is the unassigned /
+    inspection state, so an unexpected marker is never mistaken for a real
+    phase.
+    """
+    return (phase or "").strip().upper() in COMMITTED_PHASES
+
+
 def calculate_checksum(data_bytes):
     xor = 0
     for b in data_bytes:

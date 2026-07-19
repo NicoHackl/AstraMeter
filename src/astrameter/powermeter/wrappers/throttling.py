@@ -34,6 +34,14 @@ class ThrottledPowermeter(PowermeterWrapper):
         # watts without being tied to the CT002 control cadence.
         return await self.wrapped_powermeter.get_powermeter_watts_raw()
 
+    async def get_powermeter_watts_unfiltered(self) -> list[float]:
+        # Unfiltered reads DO throttle (unlike raw): inspection-mode batteries
+        # poll ~1/s, so they must share the same coalesced fetch/cache as the
+        # control path rather than hammer the source.  This wrapper sits
+        # directly above the calibration transform in the composed chain, so
+        # its normal read is already unfiltered below this point.
+        return await self.get_powermeter_watts()
+
     async def get_powermeter_watts(self) -> list[float]:
         if self.throttle_interval <= 0:
             return await self.wrapped_powermeter.get_powermeter_watts()

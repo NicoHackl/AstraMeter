@@ -23,6 +23,9 @@ class FakePowermeter:
     async def get_powermeter_watts_raw(self) -> list[float]:
         return list(self._values)
 
+    async def get_powermeter_watts_unfiltered(self) -> list[float]:
+        return list(self._values)
+
     async def wait_for_message(self, timeout=5):
         pass
 
@@ -261,3 +264,25 @@ class TestDeadbandPowermeter:
 
         db.reset()
         assert fake.reset_count == 1
+
+
+class TestSmoothedUnfiltered:
+    @pytest.mark.asyncio
+    async def test_unfiltered_bypasses_ema_and_leaves_state_untouched(self):
+        fake = FakePowermeter([100.0])
+        sp = SmoothedPowermeter(fake, alpha=0.2)
+        await sp.get_powermeter_watts()  # seed EMA at 100
+
+        fake.set([200.0])
+        assert await sp.get_powermeter_watts_unfiltered() == [200.0]
+        # The EMA state did not advance on the unfiltered read.
+        assert sp.smoothed_value == 100.0
+
+
+class TestDeadbandUnfiltered:
+    @pytest.mark.asyncio
+    async def test_unfiltered_bypasses_deadband(self):
+        fake = FakePowermeter([10.0])
+        dp = DeadbandPowermeter(fake, deadband=30)
+        assert await dp.get_powermeter_watts() == [0.0]
+        assert await dp.get_powermeter_watts_unfiltered() == [10.0]

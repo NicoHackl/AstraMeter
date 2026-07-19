@@ -127,3 +127,42 @@ async def test_throttled_raw_bypasses_get_and_throttle_coalescing():
     assert await throttled.get_powermeter_watts_raw() == [2.0, 3.0, 4.0]
     raw_m.assert_awaited_once()
     get_m.assert_not_called()
+
+
+async def test_unfiltered_applies_throttle_via_normal_path():
+    """Unfiltered reads go through the throttled/normal inner path — the chain
+    below the throttle carries no conditioning filters — NOT the inner
+    unfiltered method (which would skip the throttle's coalescing)."""
+    mock_pm = Mock()
+    get_m = AsyncMock(return_value=[1.0])
+    unf_m = AsyncMock(return_value=[9.0])
+    mock_pm.get_powermeter_watts = get_m
+    mock_pm.get_powermeter_watts_unfiltered = unf_m
+    throttled = ThrottledPowermeter(mock_pm, throttle_interval=0.1)
+
+    assert await throttled.get_powermeter_watts_unfiltered() == [1.0]
+    get_m.assert_awaited_once()
+    unf_m.assert_not_called()
+
+
+async def test_unfiltered_coalesces_with_concurrent_control_read():
+    """A control read and an unfiltered (inspection) read in flight together
+    share one underlying meter fetch."""
+    mock_pm = Mock()
+    calls = 0
+
+    async def slow_fetch():
+        nonlocal calls
+        calls += 1
+        await asyncio.sleep(0.05)
+        return [7.0]
+
+    mock_pm.get_powermeter_watts = slow_fetch
+    throttled = ThrottledPowermeter(mock_pm, throttle_interval=3600.0)
+
+    results = await asyncio.gather(
+        throttled.get_powermeter_watts(),
+        throttled.get_powermeter_watts_unfiltered(),
+    )
+    assert results == [[7.0], [7.0]]
+    assert calls == 1

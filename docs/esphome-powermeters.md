@@ -27,6 +27,15 @@ Per-phase calibration/throttling (`offset:`, `multiply:`, `throttle:`) goes in
 [ESPHome installation note](installation/esphome.md#one-important-divergence-from-the-python-emulator).
 Running the Python add-on instead? See [powermeters.md](powermeters.md).
 
+> **Go easy on conditioning filters** (`median:`, `sliding_window_moving_average:`,
+> heavy `delta:`/`or:` combinations) on the grid sensors. A battery that still
+> has to determine its phase reference runs a firmware self-diagnosis that
+> perturbs its own output and watches for the correlated change in the per-phase
+> readings — a filter that smooths or rejects sudden steps can erase exactly that
+> signal and leave the battery stuck in inspection mode (see issue #559; the
+> Python emulator bypasses its own conditioning filters for these batteries, but
+> the ESPHome component consumes your sensor as-is).
+
 > The polling/lambda examples are **illustrative**. ESPHome's `http_request`,
 > `json`, and lambda APIs differ slightly between releases — check the linked
 > component docs for the exact syntax on your version.

@@ -131,3 +131,15 @@ def test_empty_offsets_raises(mock_powermeter):
 def test_empty_multipliers_raises(mock_powermeter):
     with pytest.raises(ValueError, match="multipliers must be a non-empty list"):
         TransformedPowermeter(mock_powermeter, [0.0], [])
+
+
+async def test_unfiltered_applies_transform(mock_powermeter):
+    """Calibration is part of the measurement: the unfiltered path still
+    applies offset/multiplier to the wrapped unfiltered values."""
+    mock_powermeter.get_powermeter_watts_unfiltered = AsyncMock(
+        return_value=[100.0, 200.0, 300.0]
+    )
+    t = TransformedPowermeter(mock_powermeter, [10.0], [2.0])
+    assert await t.get_powermeter_watts_unfiltered() == [210.0, 410.0, 610.0]
+    mock_powermeter.get_powermeter_watts_unfiltered.assert_awaited_once()
+    mock_powermeter.get_powermeter_watts.assert_not_called()

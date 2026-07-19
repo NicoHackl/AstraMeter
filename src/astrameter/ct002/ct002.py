@@ -28,6 +28,7 @@ from .protocol import (
     build_payload,
     calculate_checksum,
     compute_length,
+    is_committed_phase,
     parse_int,
     parse_request,
 )
@@ -451,10 +452,16 @@ class CT002:
         self._snapshot_override(consumer)
 
     def force_efficiency_rotation(self) -> None:
+        # Same phase-committed gate as the distribution pool: an inspection
+        # ("0") consumer can't hold a rotation slot it will never be steered
+        # into (issue #559).
         current = {
             cid
             for cid, c in self._consumers.items()
-            if c.timestamp > 0 and c.active and not c.manual_enabled
+            if c.timestamp > 0
+            and c.active
+            and not c.manual_enabled
+            and is_committed_phase(c.phase)
         }
         self._balancer.force_rotation(current)
 
@@ -618,6 +625,11 @@ class CT002:
         sample_id = tuple(values)
         mode = self._consumer_mode(consumer_id)
 
+        # Only phase-committed consumers join the distribution pool.  An
+        # inspection-mode ("0") reporter is never sent a target (the handler
+        # serves it the raw relay path) and never accrues saturation, so
+        # keeping it in the pool allocates fair share to a consumer that
+        # cannot be steered — starving the real consumers (issue #559).
         reports = {
             cid: {
                 "phase": c.phase,
@@ -628,7 +640,7 @@ class CT002:
                 "min_dc_output": c.min_dc_output,
             }
             for cid, c in self._consumers.items()
-            if c.timestamp > 0
+            if c.timestamp > 0 and is_committed_phase(c.phase)
         }
         # A consumer that opted out via the request's "participate" flag is
         # treated as inactive: active control excludes it from the distribution
@@ -981,12 +993,8 @@ class CT002:
         participates = participate_raw == "" or parse_int(participate_raw, 1) != 0
 
         # Only an unassigned / diagnostic reporter is in inspection mode: "0",
-        # empty, or any other unexpected marker.  "A"/"B"/"C" are the physical
-        # phases and "D" is combined / whole-home mode (newer Marstek firmware)
-        # — all four are valid, actively-steered operating phases, so they are
-        # NOT inspection.  Accept any other value as inspection so a future
-        # marker doesn't get mistaken for a real phase.
-        in_inspection_mode = reported_phase not in ("A", "B", "C", "D")
+        # empty, or any other unexpected marker — see is_committed_phase.
+        in_inspection_mode = not is_committed_phase(reported_phase)
         if in_inspection_mode:
             logger.debug(
                 "CT002 request from %s in inspection mode (phase=%r)",

@@ -819,3 +819,12 @@ def test_stale_consumer_drops_out_of_aggregation_before_cleanup_runs():
     assert "b" in device._consumers  # cleanup hasn't run yet
     assert by_phase["A"]["count"] == 1
     assert by_phase["A"]["dchrg_power"] == 100  # b's 50 W is gone
+
+
+def test_is_committed_phase():
+    from astrameter.ct002.protocol import is_committed_phase
+
+    for phase in ("A", "b", " C ", "d"):
+        assert is_committed_phase(phase), phase
+    for phase in ("0", "", None, "E", " "):
+        assert not is_committed_phase(phase), phase
