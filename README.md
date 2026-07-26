@@ -73,7 +73,8 @@ component, see **[docs/esphome-powermeters.md](docs/esphome-powermeters.md)**.
 Supported sources include: Shelly, Tasmota, Shrdzm, Emlog, ioBroker, Home
 Assistant, VZLogger, ESPHome (Http-Polling or native API), AMIS Reader, Modbus (TCP/UDP), MQTT, JSON HTTP, TQ
 Energy Manager, HomeWizard, Enphase Envoy, SMA Energy Meter, FRITZ!Smart Energy
-250, Fronius Smart Meter, Tibber Pulse, Script, and SML.
+250, Fronius Smart Meter, Tibber Pulse, OBI Energy Tracking, Script, and
+SML.
 
 ## Configuration
 

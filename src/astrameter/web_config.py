@@ -393,6 +393,11 @@ SECTION_KEY_TYPES: dict[str, dict[str, dict[str, object]]] = {
         PASSWORD={"type": "password"},
         TIMEOUT={"type": "float"},
     ),
+    "OBI_ENERGY": _pm(
+        PASSWORD={"type": "password"},
+        LIVE_UPLOAD_INTERVAL={"type": "integer"},
+        IDLE_UPLOAD_INTERVAL={"type": "integer"},
+    ),
     "SCRIPT": _pm(),
     "SML": _pm(),
     "MQTT_INSIGHTS": {

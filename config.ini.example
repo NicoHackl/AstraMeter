@@ -461,6 +461,28 @@ THROTTLE_INTERVAL = 0
 ## If readings are reversed, flip the sign:
 # POWER_MULTIPLIER = -1
 
+# [OBI_ENERGY]
+## OBI / heyOBI Energy Tracking sensor, read through OBI's cloud in live mode.
+## The sensor has no local API: AstraMeter signs in with your heyOBI account,
+## switches the sensor into live mode (~2 s updates) and subscribes to OBI's
+## live WebSocket. Every reading is a cloud round trip — prefer a local meter
+## if you have one. Live mode drains the sensor's batteries noticeably faster.
+# EMAIL = you@example.com
+# PASSWORD = your-heyobi-password
+## Optional: pin bridge/sensor when the account has more than one. Leave blank
+## to auto-detect; the ids that were picked are logged at startup.
+# BRIDGE_ID = 1a2b3c
+# SENSOR_ID = 4d5e6f
+## Optional: country of your heyOBI account (default de).
+# COUNTRY = de
+## Optional: how often the sensor reports while AstraMeter runs (default 2 s).
+# LIVE_UPLOAD_INTERVAL = 2
+## Optional: interval restored on shutdown so the sensor leaves live mode
+## (default 300 s; set 0 to leave it in live mode).
+# IDLE_UPLOAD_INTERVAL = 300
+## If readings are reversed, flip the sign:
+# POWER_MULTIPLIER = -1
+
 # [SCRIPT]
 # COMMAND = /path/to/your/script.sh
 ## Per-powermeter throttling override (optional)

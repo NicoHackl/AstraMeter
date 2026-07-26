@@ -153,6 +153,56 @@ const esphomeNativeEy = generateEsphome({
 });
 has(esphomeNativeEy, "entity_id: sensor.grid_power", "esphomenative: ESP reads the entity via homeassistant platform");
 
+// ── config.ini: OBI Energy Tracking (cloud live mode) ────────────────────────
+const obi = generateConfigIni({
+  target: "python",
+  general: { deviceTypes: ["ct002"] },
+  meters: [
+    {
+      type: "obi_energy",
+      phases: 1,
+      fields: {
+        EMAIL: "you@example.com",
+        PASSWORD: "s3cret",
+        BRIDGE_ID: "hh-1",
+        SENSOR_ID: "mid-1",
+        COUNTRY: "at",
+        LIVE_UPLOAD_INTERVAL: "2",
+        IDLE_UPLOAD_INTERVAL: "300",
+      },
+      tuning: {},
+    },
+  ],
+});
+has(obi, "[OBI_ENERGY]", "obi: section header");
+has(obi, "EMAIL = you@example.com", "obi: email");
+has(obi, "PASSWORD = s3cret", "obi: password");
+has(obi, "BRIDGE_ID = hh-1", "obi: bridge id");
+has(obi, "SENSOR_ID = mid-1", "obi: sensor id");
+has(obi, "COUNTRY = at", "obi: country");
+has(obi, "LIVE_UPLOAD_INTERVAL = 2", "obi: live upload interval");
+has(obi, "IDLE_UPLOAD_INTERVAL = 300", "obi: idle upload interval");
+
+// Blank ids mean "auto-detect" — they must not be written out as empty keys.
+const obiAuto = generateConfigIni({
+  target: "python",
+  general: { deviceTypes: ["ct002"] },
+  meters: [{ type: "obi_energy", phases: 1, fields: { EMAIL: "you@example.com", PASSWORD: "s3cret" }, tuning: {} }],
+});
+lacks(obiAuto, "BRIDGE_ID", "obi: blank bridge id omitted");
+lacks(obiAuto, "SENSOR_ID", "obi: blank sensor id omitted");
+
+// OBI is cloud-only and Python-only — on the ESP the reading comes from the
+// Home Assistant integration's live-power entity, never from a ct002: block key.
+const obiEy = generateEsphome({
+  target: "esphome",
+  esphome: {},
+  meters: [{ type: "obi_energy", phases: 1, fields: { EMAIL: "you@example.com", PASSWORD: "s3cret" }, tuning: {} }],
+  ct: { fields: {} },
+});
+has(obiEy, "entity_id: sensor.obi_live_power", "obi: ESP reads the entity via homeassistant platform");
+lacks(obiEy, "s3cret", "obi: credentials never leak into the ESPHome YAML");
+
 // ── config.ini: multi-meter NETMASK ──────────────────────────────────────────
 const multi = generateConfigIni({
   target: "python",

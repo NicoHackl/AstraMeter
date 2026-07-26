@@ -716,6 +716,30 @@ export const POWERMETERS: Powermeter[] = [
     },
   },
   {
+    id: "obi_energy",
+    label: "OBI Energy Tracking (heyOBI cloud)",
+    section: "OBI_ENERGY",
+    blurb:
+      "An OBI / heyOBI Energy Tracking sensor, read through OBI's cloud in live mode (~2 s updates). Needs your heyOBI account — there is no local API.",
+    docPython: "docs/powermeters.md#obi-energy-tracking",
+    fields: [
+      { key: "EMAIL", label: "heyOBI email", type: "text", placeholder: "you@example.com", required: true, help: "The email address of your heyOBI account." },
+      { key: "PASSWORD", label: "heyOBI password", type: "password", placeholder: "(your heyOBI password)", required: true, help: "Password for that heyOBI account. Stored in config.ini in plain text." },
+      { key: "BRIDGE_ID", label: "Bridge id", type: "text", placeholder: "(auto-detected)", advanced: true, help: "Pin the bridge when the account has more than one. Leave blank to auto-detect (the id is logged at startup)." },
+      { key: "SENSOR_ID", label: "Sensor id", type: "text", placeholder: "(auto-detected)", advanced: true, help: "Pin the sensor when the bridge has more than one. Leave blank to auto-detect." },
+      { key: "COUNTRY", label: "Country", type: "text", default: "de", placeholder: "de", advanced: true, help: "Country code of your heyOBI account (e.g. de, at)." },
+      { key: "LIVE_UPLOAD_INTERVAL", label: "Live upload interval (seconds)", type: "number", default: "2", placeholder: "2", advanced: true, help: "How often the sensor should report while AstraMeter runs. Lower is faster but drains the sensor's battery quicker." },
+      { key: "IDLE_UPLOAD_INTERVAL", label: "Upload interval on shutdown (seconds)", type: "number", default: "300", placeholder: "300", advanced: true, help: "Restored when AstraMeter stops, so the sensor leaves live mode. Set 0 to leave it in live mode." },
+    ],
+    esphome: {
+      kind: "homeassistant",
+      tier: "alternate",
+      note: "The heyOBI login and live-mode WebSocket have no ESP port. Bridge via the OBI Energy Home Assistant integration (github.com/tomquist/obi_energy) and read its live-power sensor over the native API.",
+      haEntity: () => "sensor.obi_live_power",
+      warn: () => "OBI has no local API — this reads the live-power sensor exposed by the OBI Energy Home Assistant integration instead. Set entity_id to your own sensor if you renamed it.",
+    },
+  },
+  {
     id: "script",
     label: "Custom script",
     section: "SCRIPT",

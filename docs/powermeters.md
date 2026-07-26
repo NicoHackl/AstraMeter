@@ -38,6 +38,7 @@ Powermeters](configuration.md#multiple-powermeters) are documented in the
 - [FRITZ!Smart Energy 250](#fritzsmart-energy-250)
 - [Fronius Smart Meter](#fronius-smart-meter)
 - [Tibber Pulse](#tibber-pulse)
+- [OBI Energy Tracking](#obi-energy-tracking)
 - [Script](#script)
 - [SML](#sml)
 
@@ -537,6 +538,50 @@ telegrams.
 
 **Sign.** Power is signed (positive = import, negative = feed-in). If your
 readings are reversed, flip them with the global `POWER_MULTIPLIER = -1`.
+
+## OBI Energy Tracking
+
+Reads an **OBI / heyOBI Energy Tracking** sensor. The sensor has no local API —
+readings only reach OBI's cloud — so AstraMeter signs in with your heyOBI
+account, switches the sensor into the app's **live mode** and subscribes to
+OBI's live WebSocket, which pushes a reading roughly every two seconds.
+
+```ini
+[OBI_ENERGY]
+EMAIL = you@example.com
+PASSWORD = your-heyobi-password
+# Optional: pin the bridge/sensor when the account has more than one. Leave both
+# blank to auto-detect; the ids that were picked are logged at startup.
+# BRIDGE_ID = 1a2b3c...
+# SENSOR_ID = 4d5e6f...
+# Optional: country of your heyOBI account (default de)
+# COUNTRY = de
+# Optional: how often the sensor reports while AstraMeter runs (default 2 s)
+# LIVE_UPLOAD_INTERVAL = 2
+# Optional: interval restored on shutdown so the sensor leaves live mode
+# (default 300 s; set 0 to leave it in live mode)
+# IDLE_UPLOAD_INTERVAL = 300
+```
+
+**Cloud dependency.** Every reading takes a round trip through OBI's servers, so
+this source is only as reliable as your internet connection and OBI's backend.
+Prefer a local meter if you have one. AstraMeter reconnects automatically and
+re-requests live mode when the stream goes quiet; a reading older than 30 s is
+reported as unavailable rather than served stale.
+
+**Battery life.** Live mode makes the sensor transmit constantly, which drains
+its batteries much faster than the default cadence. AstraMeter restores
+`IDLE_UPLOAD_INTERVAL` when it shuts down cleanly — if it is killed instead, the
+sensor stays in live mode until the next start or until you close the live view
+in the heyOBI app.
+
+**Credentials.** Your heyOBI password is stored in plain text in `config.ini`
+(the session token itself is only ever kept in memory). Protect the file
+accordingly.
+
+**Sign.** Power is signed (positive = grid import, negative = feed-in) and
+reported as a single value. If your readings are reversed, flip them with
+`POWER_MULTIPLIER = -1`.
 
 ## Script
 

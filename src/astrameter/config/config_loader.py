@@ -25,6 +25,7 @@ from astrameter.powermeter import (
     JsonHttpPowermeter,
     ModbusPowermeter,
     MqttPowermeter,
+    ObiEnergy,
     PidPowermeter,
     Powermeter,
     Script,
@@ -71,6 +72,7 @@ SMA_ENERGY_METER_SECTION = "SMA_ENERGY_METER"
 FRITZ_SECTION = "FRITZ"
 FRONIUS_SECTION = "FRONIUS"
 TIBBER_PULSE_SECTION = "TIBBER_PULSE"
+OBI_ENERGY_SECTION = "OBI_ENERGY"
 MQTT_INSIGHTS_SECTION = "MQTT_INSIGHTS"
 
 
@@ -406,6 +408,8 @@ def create_powermeter(
         return create_fronius_powermeter(section, config)
     elif section.startswith(TIBBER_PULSE_SECTION):
         return create_tibber_pulse_powermeter(section, config)
+    elif section.startswith(OBI_ENERGY_SECTION):
+        return create_obi_energy_powermeter(section, config)
     elif section.startswith("MQTT") and not section.startswith(MQTT_INSIGHTS_SECTION):
         return create_mqtt_powermeter(section, config)
     else:
@@ -773,6 +777,22 @@ def create_tibber_pulse_powermeter(
         obis_power_l1=o1,
         obis_power_l2=o2,
         obis_power_l3=o3,
+    )
+
+
+def create_obi_energy_powermeter(
+    section: str, config: configparser.ConfigParser
+) -> Powermeter:
+    return ObiEnergy(
+        config.get(section, "EMAIL", fallback=""),
+        config.get(section, "PASSWORD", fallback=""),
+        bridge_id=config.get(section, "BRIDGE_ID", fallback=""),
+        sensor_id=config.get(section, "SENSOR_ID", fallback=""),
+        country=config.get(section, "COUNTRY", fallback="de"),
+        live_upload_interval=config.getint(section, "LIVE_UPLOAD_INTERVAL", fallback=2),
+        idle_upload_interval=config.getint(
+            section, "IDLE_UPLOAD_INTERVAL", fallback=300
+        ),
     )
 
 

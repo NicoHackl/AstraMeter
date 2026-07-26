@@ -19,6 +19,7 @@ from astrameter.config.config_loader import (
     create_json_http_powermeter,
     create_modbus_powermeter,
     create_mqtt_powermeter,
+    create_obi_energy_powermeter,
     create_powermeter,
     create_script_powermeter,
     create_shelly_powermeter,
@@ -571,6 +572,44 @@ def test_create_tibber_pulse_powermeter():
     assert pm.user == "root"
     assert pm.timeout == 10.0
     assert pm._obis_current == "0100100700ff"
+
+
+def test_create_obi_energy_powermeter():
+    """Test OBI Energy powermeter creation and defaults."""
+    config = configparser.ConfigParser()
+    config["OBI_ENERGY"] = {"EMAIL": "user@example.com", "PASSWORD": "secret"}
+    pm = create_obi_energy_powermeter("OBI_ENERGY", config)
+    assert pm.email == "user@example.com"
+    assert pm.password == "secret"
+    assert pm.bridge_id == ""
+    assert pm.sensor_id == ""
+    assert pm.country == "de"
+    assert pm.live_upload_interval == 2
+    assert pm.idle_upload_interval == 300
+
+    config["OBI_ENERGY_2"] = {
+        "EMAIL": "other@example.com",
+        "PASSWORD": "secret",
+        "BRIDGE_ID": "hh-1",
+        "SENSOR_ID": "mid-1",
+        "COUNTRY": "at",
+        "LIVE_UPLOAD_INTERVAL": "5",
+        "IDLE_UPLOAD_INTERVAL": "0",
+    }
+    pm = create_obi_energy_powermeter("OBI_ENERGY_2", config)
+    assert pm.bridge_id == "hh-1"
+    assert pm.sensor_id == "mid-1"
+    assert pm.country == "at"
+    assert pm.live_upload_interval == 5
+    assert pm.idle_upload_interval == 0
+
+
+def test_create_obi_energy_powermeter_requires_credentials():
+    """Section [OBI_ENERGY] must define EMAIL and PASSWORD."""
+    config = configparser.ConfigParser()
+    config["OBI_ENERGY"] = {"EMAIL": "user@example.com"}
+    with pytest.raises(ValueError, match="EMAIL"):
+        create_obi_energy_powermeter("OBI_ENERGY", config)
 
 
 def test_create_sml_powermeter():

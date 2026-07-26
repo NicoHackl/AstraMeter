@@ -63,6 +63,7 @@ Running the Python add-on instead? See [powermeters.md](powermeters.md).
 - [FRITZ!Smart Energy 250](#fritzsmart-energy-250) — 🟠 Alternate (via Home Assistant)
 - [Fronius Smart Meter](#fronius-smart-meter) — 🔵 Generic
 - [Tibber Pulse](#tibber-pulse) — 🟠 Alternate (native SML / community component)
+- [OBI Energy Tracking](#obi-energy-tracking) — 🟠 Alternate (via Home Assistant)
 
 > **Script** (the Python `[SCRIPT]` source) has no ESPHome equivalent by design —
 > an ESP32 can't run a host shell command — so it is intentionally omitted here.
@@ -1012,3 +1013,45 @@ ct002:
 **Bridge alternative:** if you'd rather keep the Pulse Bridge, a community
 external component (e.g. `tibber_pulse_local_esphome`) can query it on the ESP
 and decode the SML; point its resulting power sensor at `grid_l1`.
+
+## OBI Energy Tracking
+
+**Tier: 🟠 Alternate.** The Python `[OBI_ENERGY]` source signs in to the heyOBI
+cloud, switches the sensor into live mode and reads a **WebSocket** stream. The
+login is a JWT flow behind CloudFront and the live stream is a long-lived
+authenticated WebSocket — neither has an ESPHome port, and there is no local
+protocol on the sensor to read instead (it only ever talks to OBI's servers).
+
+The practical path is to let **Home Assistant** hold the cloud connection with
+the community [OBI Energy integration](https://github.com/tomquist/obi_energy)
+— the same API this source reimplements — and subscribe to its live-power sensor
+on the ESP with the native
+[`homeassistant`](https://esphome.io/components/sensor/homeassistant/) sensor
+platform (the same bridge the [HomeAssistant](#homeassistant) source uses):
+
+```yaml
+external_components:
+  - source: github://tomquist/astrameter@develop
+    components: [ct002]
+
+api:        # native API link to Home Assistant is required for this source
+
+sensor:
+  - platform: homeassistant
+    id: grid_l1
+    entity_id: sensor.obi_live_power   # from the OBI Energy integration
+
+ct002:
+  id: ct002_main
+  power_sensor_l1: grid_l1
+```
+
+Turn the integration's **Live tracking** switch on, or the entity only updates
+at the sensor's slow default cadence. The OBI sensor is single-phase, so only
+`grid_l1` is needed.
+
+*To implement (direct):* an external component that performs the heyOBI login,
+`PATCH`es the sensor's `uploadInterval` and holds the live-mode WebSocket open.
+ESP-side TLS plus a persistent authenticated WebSocket is heavy for an ESP32,
+and a cloud round trip per reading makes it a poor fit regardless — the Home
+Assistant bridge above is the better answer.
