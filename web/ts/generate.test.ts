@@ -466,5 +466,60 @@ const haUri = generateHomeAssistant({
 has(haUri, "mqtt://a%40b:p%3Aw%2Fd@broker.local:1883", "ha-opts: mqtt_uri encodes creds and TLS string 'false' stays mqtt");
 lacks(haUri, "mqtts://", "ha-opts: string 'false' TLS is not treated as enabled");
 
+
+// ── dashboard options (config.ini + Home Assistant add-on) ──
+const dashOn = generateConfigIni({
+  target: "python",
+  general: { deviceTypes: ["ct002"], dashboardEnabled: true, dashboardAllowWrite: true, webServerPort: "8123" },
+  meters: [{ type: "shelly", phases: 1, fields: { TYPE: "3EMPro", IP: "192.168.1.50" }, tuning: {} }],
+});
+has(dashOn, "DASHBOARD_ENABLED = True", "dashboard: enabled flag");
+has(dashOn, "DASHBOARD_ALLOW_WRITE = True", "dashboard: write flag");
+has(dashOn, "WEB_SERVER_PORT = 8123", "dashboard: port emitted without the INI editor");
+
+const dashReadOnly = generateConfigIni({
+  target: "python",
+  general: { deviceTypes: ["ct002"], dashboardEnabled: true },
+  meters: [{ type: "shelly", phases: 1, fields: { TYPE: "3EMPro", IP: "192.168.1.50" }, tuning: {} }],
+});
+has(dashReadOnly, "DASHBOARD_ENABLED = True", "dashboard: on");
+lacks(dashReadOnly, "DASHBOARD_ALLOW_WRITE", "dashboard: read-only unless asked");
+
+const dashOff = generateConfigIni({
+  target: "python",
+  general: { deviceTypes: ["ct002"] },
+  meters: [{ type: "shelly", phases: 1, fields: { TYPE: "3EMPro", IP: "192.168.1.50" }, tuning: {} }],
+});
+lacks(dashOff, "DASHBOARD_ENABLED", "dashboard: absent when off");
+
+// The add-on ships the dashboard on and writable, so only a deviation from
+// those defaults is worth emitting into the options.
+const haDashDefault = generateHomeAssistant({
+  target: "homeassistant",
+  general: { deviceTypes: ["ct002"], dashboardAllowWrite: true },
+  meters: [{ type: "homeassistant", phases: 1, fields: { CURRENT_POWER_ENTITY: "sensor.p" }, tuning: {} }],
+  ct: { fields: {} },
+});
+lacks(haDashDefault, "dashboard_allow_write", "ha-opts: nothing emitted when writes match the add-on default");
+
+// The add-on's sidebar panel *is* the dashboard, so it cannot be turned off
+// there — no `dashboard` option exists to emit, whatever the form says.
+const haDashOff = generateHomeAssistant({
+  target: "homeassistant",
+  general: { deviceTypes: ["ct002"], dashboardEnabled: false, dashboardAllowWrite: true },
+  meters: [{ type: "homeassistant", phases: 1, fields: { CURRENT_POWER_ENTITY: "sensor.p" }, tuning: {} }],
+  ct: { fields: {} },
+});
+lacks(haDashOff, "dashboard:", "ha-opts: the add-on has no option to disable the dashboard");
+
+const haDashReadOnly = generateHomeAssistant({
+  target: "homeassistant",
+  general: { deviceTypes: ["ct002"], dashboardEnabled: true, dashboardAllowWrite: false },
+  meters: [{ type: "homeassistant", phases: 1, fields: { CURRENT_POWER_ENTITY: "sensor.p" }, tuning: {} }],
+  ct: { fields: {} },
+});
+has(haDashReadOnly, "dashboard_allow_write: false", "ha-opts: read-only dashboard is emitted");
+
+
 console.log("\n" + (failures ? `${failures} FAILED` : "ALL PASSED"));
 process.exit(failures ? 1 : 0);

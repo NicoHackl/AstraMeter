@@ -45,13 +45,19 @@ if TYPE_CHECKING:
     from astrameter.config.settings import ConfiguredPowermeter
     from astrameter.mqtt_insights import MqttInsightsConfig
 
-OPTIONS_PATH = "/data/options.json"
-"""Where the Supervisor stores the add-on's user options."""
+OPTIONS_PATH = os.environ.get("ASTRAMETER_ADDON_OPTIONS", "/data/options.json")
+"""Where the Supervisor stores the add-on's user options.
 
-ADDON_CONFIG_DIR = "/config"
+The three locations below are fixed inside a real add-on container. Each takes
+an environment override so the add-on path can be driven from outside one — by
+the browser E2E, which runs the app as a subprocess against a stand-in
+Supervisor, and by anyone debugging the add-on backend on their own machine.
+"""
+
+ADDON_CONFIG_DIR = os.environ.get("ASTRAMETER_ADDON_CONFIG_DIR", "/config")
 """The ``addon_config`` mount that may hold a user-supplied config file."""
 
-SUPERVISOR_BASE_URL = "http://supervisor"
+SUPERVISOR_BASE_URL = os.environ.get("ASTRAMETER_SUPERVISOR_URL", "http://supervisor")
 """Base URL of the Supervisor API inside the add-on container."""
 
 REQUEST_TIMEOUT = 10.0
@@ -72,6 +78,8 @@ Options = dict[str, Any]
 # untouched are skipped, so the settings defaults apply.
 _GENERAL_FIELDS: dict[str, str] = {
     "dedupe_time_window": "dedupe_time_window",
+    "dashboard_allow_write": "dashboard_allow_write",
+    "dashboard_direct_access": "dashboard_direct_access",
 }
 
 _GLOBAL_SIGNAL_FIELDS: dict[str, str] = {
@@ -364,6 +372,13 @@ class AddonAppConfig(AppConfig):
             # served; its config editor is for config files only.
             enable_web_server=True,
             web_config_enabled=False,
+            # The add-on's sidebar panel *is* the dashboard, so there is no
+            # option to turn it off: doing so would leave a panel that opens
+            # onto nothing. Unlike a bare Docker run it costs nothing to serve
+            # either, because Home Assistant authenticates every ingress
+            # request. Writing is on by default and can be turned off.
+            dashboard=True,
+            dashboard_allow_write=True,
             signal=_apply_options(
                 defaults.signal, self._options, _GLOBAL_SIGNAL_FIELDS
             ),
@@ -458,6 +473,42 @@ class AddonAppConfig(AppConfig):
                 signal.wait_for_next_message,
             )
         ]
+
+    def render_powermeters_ini(self) -> str:
+        """``[HOMEASSISTANT]`` matching what :meth:`powermeters` builds.
+
+        Mirrors that method key for key. The two are pinned together by
+        ``addon_test.py``; when power sources grow a settings type this can be
+        rendered generically and both this and the hook go away.
+        """
+        power_input = self._entities("power_input_alias")
+        power_output = self._entities("power_output_alias")
+        supervisor = urlparse(self._supervisor.base_url)
+        lines = [
+            "[HOMEASSISTANT]",
+            f"IP = {supervisor.hostname or 'supervisor'}",
+            f"PORT = {supervisor.port or 80}",
+            "API_PATH_PREFIX = /core",
+            "# The add-on authenticates with its own Supervisor token; a standalone",
+            "# install needs a long-lived access token here instead.",
+            "ACCESSTOKEN =",
+        ]
+        if power_output:
+            lines += [
+                "POWER_CALCULATE = True",
+                f"POWER_INPUT_ALIAS = {', '.join(power_input)}",
+                f"POWER_OUTPUT_ALIAS = {', '.join(power_output)}",
+            ]
+        else:
+            lines += [
+                "POWER_CALCULATE = False",
+                f"CURRENT_POWER_ENTITY = {', '.join(power_input)}",
+            ]
+        for key in ("power_offset", "power_multiplier"):
+            value = self._option(key)
+            if value not in (None, ""):
+                lines.append(f"{key.upper()} = {value}")
+        return "\n".join(lines) + "\n"
 
     def _entities(self, key: str) -> list[str]:
         """Entity ids of an option; one per phase for three-phase setups."""
