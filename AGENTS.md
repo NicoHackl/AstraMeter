@@ -19,6 +19,34 @@ uv run pytest
 
 CI runs the same steps (see `.github/workflows/ci.yml`).
 
+## Home Assistant add-on image
+
+`tests/test_addon_container.py` runs the built add-on image against a stand-in
+Supervisor (`tests/_fake_supervisor.py`) — the only test that covers
+`ha_addon/run.sh`, the venv path and `SUPERVISOR_TOKEN` reaching the app. It
+skips unless the image exists, so build it first when touching the add-on's
+container or launch path:
+
+```bash
+docker build -f ha_addon/Dockerfile -t astrameter-addon:test .
+uv run pytest tests/test_addon_container.py
+```
+
+CI does the same in the `addon-container` job — the durable path, since a
+sandboxed agent session may not be able to run these locally:
+
+- **The daemon is usually not running.** Docker is installed in Claude Code's
+  remote environment, but nothing starts it; `dockerd &` (as root) works, and
+  it does not survive into the next session.
+- **The build fails behind a TLS-intercepting proxy.** `apk add` in the
+  builder stage cannot verify the proxy's certificate. Build with
+  `--network host` and the proxy CA added to the image (the environment's
+  proxy notes — `/root/.ccr/README.md` on Claude Code — describe how). Do this
+  in a copy of the Dockerfile: the real one must stay proxy-free for CI.
+
+When neither is possible, leave the container tests to CI and say so rather
+than reporting the image as untested.
+
 ## Python ↔ ESPHome parity (REQUIRED)
 
 `esphome/components/ct002/` is a C++ mirror of the Python CT002 stack. Any change to shared behavior must land on **both** sides in the same change. See `CONTRIBUTING.md` for the file mapping and what has no C++ counterpart. Verify with `uv run pytest tests/components/ct002/`.
@@ -77,11 +105,11 @@ Write each bullet for the **user**, not the implementer: describe what changed f
 
 Any **user-facing config option** must be wired into **every** config surface, not just the loader — a setting that only one entry point understands is a bug. When you add or rename a `[SECTION]` key, update **all** of:
 
-1. **Loader** — read it in `src/astrameter/config/config_loader.py` (or the relevant `run_device` block in `main.py`).
+1. **Settings + loader** — add the field (with its default) to the matching dataclass in `src/astrameter/config/settings.py`, read the `[SECTION] KEY` for it in `src/astrameter/config/ini_config.py` (powermeter keys: `src/astrameter/config/config_loader.py`), and use it where it belongs (e.g. `run_device` in `main.py`). Config **backends** answer the `AppConfig` interface — nothing outside `ini_config.py` / `config_loader.py` should know section or key names.
 2. **`config.ini.example`** — a commented example with a short rationale.
 3. **Web config editor** — register typed keys in `SECTION_KEY_TYPES` in `src/astrameter/web_config.py`.
 4. **Web config generator (ALWAYS)** — add the field to the matching group in `web/ts/schema.ts` (e.g. a `CT_*` group or a `POWERMETERS` entry), emit it from `web/ts/generate.ts` for **every** target it applies to (`config.ini`, the Home Assistant add-on options, and ESPHome **only if** it has an ESPHome counterpart — Python-only options carry no `ey` key and must be excluded from the `ct002:` block), surface it in `web/ts/app.ts`, and add `web/ts/generate.test.ts` assertions. Run `cd web && npm run check`.
-5. **Home Assistant add-on** — add the option + schema to `ha_addon/config.yaml`, map it to the generated `config.ini` in `ha_addon/run.sh`, and describe it in `ha_addon/translations/en.yaml`.
+5. **Home Assistant add-on** — add the option + schema to `ha_addon/config.yaml`, map it onto the settings field in `src/astrameter/config/addon.py` (the `--addon` backend reads the add-on options directly — usually one entry in `_CT_FIELDS` / `_SOURCE_SIGNAL_FIELDS` / `_GENERAL_FIELDS`) with a test in `addon_test.py`, and describe it in `ha_addon/translations/en.yaml`. `ha_addon/run.sh` only launches the app — nothing to change there. `addon_schema_test.py` fails until the option is wired up (and `tests/test_addon_golden_settings.py` until it appears in the golden fixture), so an option that does nothing cannot ship.
 6. **Docs** — the relevant `docs/*.md` (and `README.md` if it belongs in the quick reference).
 
 The web config generator is **not optional** — a new option that the generator can't produce is incomplete.
