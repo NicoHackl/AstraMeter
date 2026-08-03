@@ -186,14 +186,40 @@ async def test_power_entities_keep_unclassed_watt_sensors():
                 },
             },
             {"entity_id": "light.kitchen", "state": "on", "attributes": {}},
+            # Readings are fetched per entity from /api/states/<id>, which is
+            # domain-agnostic, so this is a working power source — excluding
+            # it told the user their entity did not exist.
+            {
+                "entity_id": "number.verbrauch",
+                "state": "812.0",
+                "attributes": {
+                    "friendly_name": "Verbrauch",
+                    "device_class": "power",
+                    "unit_of_measurement": "W",
+                },
+            },
+            # The other arm of the same test: outside `sensor.` *and* with no
+            # device class, so only the unit says this is power.
+            {
+                "entity_id": "input_number.grid_watts",
+                "state": "0.81",
+                "attributes": {"unit_of_measurement": "kW"},
+            },
         ]
     )
     entities = await client.list_power_entities()
-    assert [e["entity_id"] for e in entities] == ["sensor.grid", "sensor.p1"]
-    assert entities[0]["name"] == "Grid power"
-    assert entities[0]["state"] == "412.8"
+    assert [e["entity_id"] for e in entities] == [
+        "input_number.grid_watts",
+        "number.verbrauch",
+        "sensor.grid",
+        "sensor.p1",
+    ]
+    assert entities[0]["name"] == "input_number.grid_watts"
+    assert entities[0]["device_class"] is None
+    assert entities[2]["name"] == "Grid power"
+    assert entities[2]["state"] == "412.8"
     # An id with no friendly name still needs something to render.
-    assert entities[1]["name"] == "sensor.p1"
+    assert entities[3]["name"] == "sensor.p1"
 
 
 async def test_power_entities_tolerate_a_junk_payload():

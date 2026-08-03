@@ -76,6 +76,25 @@ test("renders the guided form from the add-on's own schema", async ({ page }) =>
   await expect(page.locator('button:text("+ Add section")')).toHaveCount(0);
 });
 
+test("an option type the form cannot edit does not break it", async ({ page }) => {
+  // Supervisor sends a repeated option as a list. Parsing it as a validator
+  // string threw inside render, which froze the page on its loading state —
+  // and took every other tab's repaint with it.
+  await page.goto(`${BASE_URL}#/config`);
+  await expect(form(page)).toBeVisible();
+  await expect(page.locator("body")).not.toContainText("Loading add-on options");
+
+  const field = page.locator("label.field", { hasText: "Extra Hosts" });
+  await expect(field).toContainText("Configuration page");
+  await expect(field.locator("input")).toBeDisabled();
+
+  // Saving must round-trip it untouched rather than flattening it to a string.
+  await page.getByLabel("Grid prediction trust").fill("0.55");
+  await page.locator('button:text("Save only")').click();
+  await expect(page.locator(".banner")).toContainText("Saved");
+  expect(readAddonOptions(stack).extra_hosts).toEqual(["alpha", "beta"]);
+});
+
 test("saving writes the options back through the Supervisor", async ({ page }) => {
   await page.goto(`${BASE_URL}#/config`);
   await expect(form(page)).toBeVisible();
@@ -121,7 +140,7 @@ test("Supervisor's own rejection message is shown verbatim", async ({ page }) =>
   await expect(page.locator(".banner.err")).toContainText("expected float in range");
 });
 
-test("the grid sensor is an entity picker listing only power sensors", async ({
+test("the grid sensor is an entity picker listing only power entities", async ({
   page,
 }) => {
   await page.goto(`${BASE_URL}#/config`);
@@ -137,6 +156,9 @@ test("the grid sensor is an entity picker listing only power sensors", async ({
   // plenty of real installs look like that.
   expect(suggestions).toContain("sensor.grid_power");
   expect(suggestions).toContain("sensor.p1_meter_active_power");
+  // Not a `sensor.`, but a working grid source all the same: readings are
+  // fetched from /api/states/<id>, which is domain-agnostic.
+  expect(suggestions).toContain("number.verbrauch_15");
   // Everything that could not be grid power stays out.
   expect(suggestions).not.toContain("sensor.house_energy_today");
   expect(suggestions).not.toContain("sensor.outside_temperature");
