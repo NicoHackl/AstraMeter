@@ -79,6 +79,8 @@ export interface ConsumerStatus {
   /** Set only for a placeholder holding a setting for an absent battery. */
   never_reported?: boolean;
   poll_interval_s?: number;
+  /** How often we actually reply; exceeds poll_interval_s when a dedupe window drops polls. */
+  answer_interval_s?: number;
   ttl_s?: number;
   expired?: boolean;
   in_flight?: boolean;

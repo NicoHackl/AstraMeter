@@ -85,6 +85,10 @@ class BatterySimulator:
         self._pending_power_targets: list[tuple[int, float]] = []
         self._dc_input_power: float = 0.0
         self.dc_input_power = dc_input_power  # reuse setter clamp
+        # In-flight polls started by :meth:`run`.  Held only so the event loop
+        # keeps a strong reference to them (asyncio tasks are weakly
+        # referenced and would otherwise be collectable mid-flight).
+        self._poll_tasks: set[asyncio.Task] = set()
 
         # Self-consumption control law. Most Marstek batteries (Venus class) run
         # the firmware ramp controller on the grid value read back from the CT;
@@ -285,6 +289,13 @@ class BatterySimulator:
     async def _send_request(self) -> list[str] | None:
         request_fields = self._request_fields()
         phase_field = request_fields[4]
+        # Claim the sequence number now, not after the reply lands. `run()`
+        # fires polls without awaiting them, so counting on receipt would let
+        # concurrent polls read the same value and repeat the inspection phase
+        # — and a poll that is never answered (dedupe drop, lost datagram)
+        # would leave the battery stuck in inspection forever. A real device
+        # counts the polls it sent.
+        self._request_count += 1
         payload = protocol.build_payload(request_fields)
 
         loop = asyncio.get_running_loop()
@@ -305,8 +316,6 @@ class BatterySimulator:
         finally:
             if transport is not None:
                 transport.close()
-
-        self._request_count += 1
 
         response_fields, err = protocol.parse_message(data)
         if err:
@@ -406,21 +415,31 @@ class BatterySimulator:
 
     # -- main loop ---------------------------------------------------------
 
+    def _advance(self, dt: float) -> None:
+        """Advance the simulated plant by *dt* seconds (no I/O)."""
+        self._step_index += 1
+        self._drain_pending_power_targets()
+        self._update_power(dt)
+        self._update_soc(dt)
+
     async def step(self, dt: float | None = None) -> list[str] | None:
         """Execute one simulation iteration with explicit *dt*.
 
         When *dt* is ``None`` it defaults to :attr:`poll_interval`.
         Unlike :meth:`run`, this does **not** sleep or touch
         ``_last_update`` — it is designed for deterministic test
-        stepping.
+        stepping, so it awaits the reply rather than detaching it.
         """
         if dt is None:
             dt = self.poll_interval
-        self._step_index += 1
-        self._drain_pending_power_targets()
-        self._update_power(dt)
-        self._update_soc(dt)
+        self._advance(dt)
         return await self._send_request()
+
+    def _spawn_poll(self) -> None:
+        """Send one poll without letting the reply gate the next one."""
+        task = asyncio.create_task(self._send_request())
+        self._poll_tasks.add(task)
+        task.add_done_callback(self._poll_tasks.discard)
 
     async def run(self) -> None:
         logger.info(
@@ -430,17 +449,35 @@ class BatterySimulator:
             self._soc * 100,
         )
         self._last_update = time.monotonic()
-        while True:
-            now = time.monotonic()
-            dt = (now - self._last_update) * self.time_scale
-            self._last_update = now
+        next_poll = self._last_update
+        try:
+            while True:
+                now = time.monotonic()
+                dt = (now - self._last_update) * self.time_scale
+                self._last_update = now
 
-            await self.step(dt)
+                self._advance(dt)
+                # The firmware sends on its own cadence and applies whatever
+                # comes back — it does not hold the next poll until the CT
+                # answers.  Awaiting the reply here would make an unanswered
+                # poll (a dedupe drop, a lost datagram) push the whole schedule
+                # out by the receive timeout, which the real device never does.
+                self._spawn_poll()
 
-            jitter = random.uniform(-0.5, 0.5)
-            await asyncio.sleep(
-                max(0.05, (self.poll_interval + jitter) / self.time_scale)
-            )
+                jitter = random.uniform(-0.5, 0.5)
+                next_poll += max(0.05, (self.poll_interval + jitter) / self.time_scale)
+                # Absolute deadline, so a slow or timed-out exchange cannot
+                # accumulate drift into the polling schedule.
+                await asyncio.sleep(max(0.0, next_poll - time.monotonic()))
+        finally:
+            # cancel() only *requests* cancellation; without the await the
+            # detached polls never reach their `finally` and their transports
+            # leak past shutdown.
+            tasks = list(self._poll_tasks)
+            for task in tasks:
+                task.cancel()
+            if tasks:
+                await asyncio.gather(*tasks, return_exceptions=True)
 
     # -- serialisation -----------------------------------------------------
 
