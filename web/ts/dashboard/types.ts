@@ -102,6 +102,27 @@ export interface BucketStatus {
   active?: boolean;
 }
 
+/**
+ * The balancer's verdict on how well the loop is holding the grid at zero.
+ *
+ * `verdict` is one of idle / warmup / stable / off_target / limited, but it
+ * stays a plain string here: a backend serving a reduced document may add a
+ * verdict this bundle predates, and the page must render what it is given
+ * rather than drop the card.
+ *
+ * `score_pct` is absent while there is nothing to score — the backend omits it
+ * rather than sending a 100 it has no evidence for.
+ */
+export interface ControlQualityStatus {
+  verdict?: string;
+  score_pct?: number;
+  error_w?: number;
+  in_band_fraction?: number;
+  crossings_per_min?: number;
+  band_w?: number;
+  samples?: number;
+}
+
 export interface DeviceStatus {
   kind?: "ct002" | "shelly";
   device_id?: string;
@@ -129,7 +150,7 @@ export interface DeviceStatus {
     consecutive_meter_failures?: number;
   };
   buckets?: Record<string, BucketStatus>;
-  balancer?: Record<string, any>;
+  balancer?: Record<string, any> & { control_quality?: ControlQualityStatus };
   consumers?: ConsumerStatus[];
   orphan_overrides?: Record<string, any>[];
   // Shelly only. A Shelly emulator steers nothing, so its batteries carry

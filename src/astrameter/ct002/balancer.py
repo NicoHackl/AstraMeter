@@ -5,7 +5,7 @@ from __future__ import annotations
 import dataclasses
 import time
 from collections.abc import Callable
-from typing import Literal, NamedTuple, NewType
+from typing import Literal, NamedTuple, NewType, get_args
 
 from astrameter.config.logger import logger
 
@@ -127,6 +127,62 @@ PRED_INNOVATION_GATE_W = 40.0
 # which leaves a larger import, is left alone).
 IMPORT_TRIM_GATE_W = 120.0
 IMPORT_TRIM_DWELL = 6
+
+# Control-quality assessment (see ControlQualityTracker).  Everything here is
+# derived from state the loop already keeps, so the verdict costs the user no
+# new setting: the accuracy band is the balancer's own settling deadband
+# (floored, so a deadband of 0 doesn't make every wobble a failure), and the
+# EMAs are time-weighted against CONTROL_QUALITY_REFERENCE_DT exactly like the
+# saturation ones, so a 0.45 s poller and a 3 s poller reach the same verdict
+# under the same physical conditions.
+CONTROL_QUALITY_REFERENCE_DT = 1.0
+# ~50 reference seconds of memory: long enough that a kettle switching on is
+# averaged away (a control *quality* reading, not a transient alarm), short
+# enough that a loop that starts hunting is called out within a minute.
+CONTROL_QUALITY_ALPHA = 0.02
+# A gap this long means the old window describes a different house; re-seed
+# rather than dosing the EMAs with minutes of rise or decay.  Note the
+# consequence for a control loop that genuinely runs slower than this — a
+# ``DEDUPE_TIME_WINDOW`` above 60 s, since the tracker only sees answered
+# polls: every sample looks like a gap, the window never fills, and the
+# verdict stays "warmup".  Deliberate, and the same trade-off
+# ``SATURATION_LONG_GAP_SECONDS`` already makes at 30 s: a loop correcting
+# once a minute cannot be characterised at any finer grain than that.
+CONTROL_QUALITY_LONG_GAP_SECONDS = 60.0
+# Observation before the tracker commits to a verdict.  A *duration*, not a
+# sample count, for the same reason the crossing rate is a rate: a CT is polled
+# once per battery, so a six-battery pool at 0.45 s would reach ten samples in
+# under a second and publish a verdict off a slice too short to mean anything,
+# while one battery at 3 s waited thirty times as long.  The EMAs are seeded
+# from the first sample, so this only guards against calling a brief glimpse a
+# trend.
+CONTROL_QUALITY_WARMUP_SECONDS = 10.0
+# Floor under the accuracy band, so the verdict never demands tracking tighter
+# than the meter noise the loop deliberately ignores.
+CONTROL_QUALITY_MIN_BAND_W = 25.0
+# Mean error, in multiples of the band, up to which the loop still counts as
+# stable.  Deliberately well above the band: a real house steps constantly and
+# a step lands on the meter before any battery can answer it, so a mean pinned
+# inside the settling band is only reachable on a quiet house.  Calibrated
+# against the simulator's scenarios (``astrameter.simulator.evaluation``) so a
+# well-behaved install reads "stable" and a genuinely poor one does not — at
+# the default band this is 100 W.
+CONTROL_QUALITY_STABLE_BANDS = 4.0
+# Out-of-band error at which the score bottoms out, in multiples of the band —
+# ~525 W at the default. Wide enough that the score stays a *gradient* across
+# the range real houses actually produce instead of pinning at 0.
+CONTROL_QUALITY_ERROR_SCALE = 20.0
+# Share of the window the pool must have spent with no headroom before a
+# persistent error is blamed on the pack rather than on the loop.  A majority,
+# so the two claims cover the same window: the error figure is an average over
+# ~50 s, and excusing it on the strength of one saturated sample would flip the
+# verdict between "limited" and "off_target" poll by poll — and would absolve a
+# whole window of accumulated error on the evidence of a single reading.
+CONTROL_QUALITY_LIMITED_SHARE = 0.5
+# Saturation score above which a battery counts as out of headroom.  When every
+# battery in the pool is there, the remaining error is the pack's limit (full,
+# empty, or clamped), not the loop mis-steering.
+CONTROL_QUALITY_SATURATED = 0.6
 
 EFFICIENCY_HYSTERESIS_FACTOR = 1.2
 # Seconds to suppress saturation checks after a battery is promoted from
@@ -493,6 +549,74 @@ class ProbeSnapshot:
     deadline_in: float
 
 
+# Deliberately a description of the *grid*, never a diagnosis of a cause.
+#
+# An earlier revision offered "oscillating" vs "sluggish" — hunting vs not
+# keeping up.  Their remedies are opposites (lower the gain vs raise it), so a
+# misclassification does not merely mislead, it sends the user the wrong way.
+# Three candidate hunt signals were measured against the simulator's scenarios
+# (``astrameter.simulator.evaluation``) and none of them separates a hunting
+# loop from a busy house or a noisy meter: a per-sample reversal fraction
+# tracks the poll cadence rather than the house, an amplitude-gated crossing
+# *rate* scores a jittery meter (7.2/min) far above a deliberately
+# over-tuned loop (0.6/min), and the balancer's own ``osc_score`` sits near
+# 1.0 on well-behaved runs because it is a damping gate, not a diagnostic.
+#
+# So the verdict states only what is measured — how far from zero, and whether
+# the pack still had anything left — and ``crossings_per_min`` is published
+# beside it as evidence for the user (or a later, better classifier) to read.
+ControlQualityVerdict = Literal["idle", "warmup", "stable", "off_target", "limited"]
+
+#: The verdict vocabulary, derived from the type so HA's enum ``options`` and
+#: the dashboard's labels cannot drift from what the tracker can emit.
+CONTROL_QUALITY_STATES: tuple[str, ...] = get_args(ControlQualityVerdict)
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class ControlQualitySnapshot:
+    """How well the loop is holding the grid at zero — and how it misses.
+
+    ``verdict`` is the whole point; the numbers below it are the evidence:
+
+    ``idle``
+        Nothing is being steered (no batteries polling, relay mode, or the
+        pool has gone quiet), so there is no loop to judge.
+    ``warmup``
+        Steering, but too few samples yet to call it.
+    ``stable``
+        Mean grid error sits within the loop's working tolerance — a few
+        times the settling band, since every load step lands on the meter
+        before any battery can answer it.
+    ``off_target``
+        Mean grid error is beyond that tolerance while the pack still has
+        headroom.  Says *that* the grid is not being held, deliberately not
+        *why*; ``crossings_per_min`` and ``in_band_fraction`` are published
+        as the evidence to interpret (see :data:`ControlQualityVerdict`).
+    ``limited``
+        Same, but every battery is out of headroom for most of the window.
+        The pack is full, empty or clamped; the loop is doing all it can.
+    """
+
+    verdict: ControlQualityVerdict
+    #: 0..100, or ``None`` while ``verdict`` is ``idle``/``warmup`` and there
+    #: is nothing to score.  Accuracy of the mean error against the band, and
+    #: nothing else: the crossing rate deliberately does not discount it (see
+    #: :meth:`ControlQualityTracker._score`).
+    score: float | None
+    #: Mean absolute grid error over the recent window, watts.
+    error_ema: float
+    #: Share of that window spent inside the band, 0..1.
+    in_band_fraction: float
+    #: Zero crossings **per second** among excursions large enough to matter.
+    #: A rate, not a share of samples, so it describes the house rather than
+    #: the poll cadence.  Evidence only — see :data:`ControlQualityVerdict`
+    #: for why it does not decide the verdict.
+    crossings_per_second: float
+    #: The settling band the verdict is measured against, watts.
+    band: float
+    samples: int
+
+
 @dataclasses.dataclass(frozen=True, slots=True)
 class BalancerSnapshot:
     """Immutable whole-balancer view for the status API."""
@@ -503,6 +627,7 @@ class BalancerSnapshot:
     import_trim: ImportTrimSnapshot
     efficiency: EfficiencySnapshot
     probe: ProbeSnapshot | None
+    control_quality: ControlQualitySnapshot
 
 
 @dataclasses.dataclass
@@ -650,6 +775,195 @@ class SaturationTracker:
 
 
 # ---------------------------------------------------------------------------
+# Control quality
+# ---------------------------------------------------------------------------
+
+
+class ControlQualityTracker:
+    """Judges the closed loop the way a user would: by what the meter shows.
+
+    Every other diagnostic in this file describes a mechanism — predictor
+    trust, pace caps, saturation EMAs.  This one answers the question those
+    mechanisms exist to serve: *is the grid actually being held at zero, and
+    if not, how is it missing?*  It reads the meter total the control path
+    acts on — the powermeter's own output, after whatever filter chain the
+    user configured, but never the balancer's internal prediction, so a
+    confidently wrong estimate cannot flatter the verdict.
+
+    How far off the loop sits (``error_ema``) says whether there is a problem
+    at all.  Whether it is the loop's fault is decided separately: when every
+    battery has been out of headroom for most of the window the error is the
+    pack's limit, and the verdict says ``limited`` instead of blaming the
+    controller.  What the tracker deliberately does *not* do is name a cause
+    beyond that — see :data:`ControlQualityVerdict`.
+
+    **Everything here is measured per second, never per sample.**  A CT is fed
+    once per poll *per battery*, so the sample rate is a property of the
+    installation (battery count times poll cadence), not of the house.  The error
+    and in-band figures average a *level*, which is naturally rate-free; the
+    crossing figure counts *events*, so it is accumulated as crossings per
+    second (``flip / dt``) rather than as a fraction of samples.  Getting this
+    wrong silently turns the figure into a report on the poll rate: a
+    per-sample reversal fraction converges to ``2*dt/T`` for a limit cycle of
+    period ``T``, which at 1 Hz never reaches any threshold a real hunt could
+    clear, and which halves when a second battery joins the pool.
+
+    Pool-level state, so unlike :class:`SaturationTracker` it owns what it
+    tracks.
+    """
+
+    def __init__(self, band: float, clock: Callable[[], float] | None = None) -> None:
+        self._clock = clock or time.time
+        self._band = max(CONTROL_QUALITY_MIN_BAND_W, float(band))
+        self._error_ema = 0.0
+        self._in_band_ema = 0.0
+        #: Zero crossings per second (see the class docstring), not per sample.
+        self._crossings_ema = 0.0
+        #: Share of the window the pool spent with no headroom, 0..1.  Time-
+        #: weighted like everything else: whether the pack is exhausted is a
+        #: claim about the same window ``error_ema`` covers, so deciding it
+        #: from the latest sample alone would let one noisy reading excuse (or
+        #: condemn) a minute of accumulated error.
+        self._limited_ema = 0.0
+        self._last_sign = 0
+        self._samples = 0
+        #: Seconds of steering actually observed in this window (see
+        #: CONTROL_QUALITY_WARMUP_SECONDS).
+        self._observed = 0.0
+        self._last_update = 0.0
+        self._steering = False
+
+    def update(self, grid: float, *, steering: bool, limited: bool) -> None:
+        """Fold one meter sample into the window.
+
+        *grid* is the meter total the loop acted on (watts, + = import).
+        *steering* is whether the balancer has anything to steer at all;
+        *limited* whether the pool is out of headroom right now, in which case
+        a persistent error is not the loop's doing.
+        """
+        now = self._clock()
+        prev_t = self._last_update
+        if prev_t <= 0.0:
+            prev_t = now - CONTROL_QUALITY_REFERENCE_DT
+        dt = max(0.0, now - prev_t)
+        self._last_update = now
+        self._steering = steering
+        if dt == 0.0:
+            return
+        if dt > CONTROL_QUALITY_LONG_GAP_SECONDS:
+            # The pool was away long enough that the old window describes a
+            # different house.  Start over rather than blending across the gap.
+            self._reset_window()
+            return
+        if not steering:
+            # Nothing is being steered, so the meter is not evidence about a
+            # loop.  Hold the window instead of scoring the house's own load.
+            return
+
+        error = abs(grid)
+        in_band = 1.0 if error <= self._band else 0.0
+        limit_hit = 1.0 if limited else 0.0
+        if self._samples == 0:
+            # Seed from the first sample: a cold EMA reads as a perfectly held
+            # grid, which would report "stable" for the first minute of a loop
+            # that is anything but.
+            self._error_ema = error
+            self._in_band_ema = in_band
+            self._limited_ema = limit_hit
+        else:
+            ratio = dt / CONTROL_QUALITY_REFERENCE_DT
+            alpha = 1.0 - (1.0 - CONTROL_QUALITY_ALPHA) ** ratio
+            self._error_ema += alpha * (error - self._error_ema)
+            self._in_band_ema += alpha * (in_band - self._in_band_ema)
+            self._limited_ema += alpha * (limit_hit - self._limited_ema)
+            # Crossings per second, so the rate describes the house rather
+            # than the poll cadence (see the class docstring).  Counted only
+            # between excursions large enough to matter — the same margin that
+            # decides "stable".  A jittery meter crosses zero constantly at
+            # small amplitude, and grading that as hunting would flag the
+            # noisiest installations instead of the worst-steered ones.
+            flips_per_second = 0.0
+            if error > self._band * CONTROL_QUALITY_STABLE_BANDS:
+                sign = 1 if grid > 0 else -1
+                if self._last_sign != 0 and sign != self._last_sign:
+                    flips_per_second = 1.0 / dt
+                self._last_sign = sign
+            self._crossings_ema += alpha * (flips_per_second - self._crossings_ema)
+        self._samples += 1
+        self._observed += dt
+
+    def snapshot(self) -> ControlQualitySnapshot:
+        """Current verdict and its evidence.  Pure reads — no clock advance."""
+        return ControlQualitySnapshot(
+            verdict=self._verdict(),
+            score=self._score(),
+            error_ema=self._error_ema,
+            in_band_fraction=self._in_band_ema,
+            crossings_per_second=self._crossings_ema,
+            band=self._band,
+            samples=self._samples,
+        )
+
+    # -- internals -----------------------------------------------------
+
+    def _reset_window(self) -> None:
+        self._error_ema = 0.0
+        self._in_band_ema = 0.0
+        self._crossings_ema = 0.0
+        self._limited_ema = 0.0
+        self._last_sign = 0
+        self._samples = 0
+        self._observed = 0.0
+
+    def _stale(self) -> bool:
+        """Whether the last sample is old enough that there is no live loop.
+
+        A device whose batteries all went away stops calling ``update``
+        entirely, so without this the last verdict would hang on the dashboard
+        forever, describing a pool that no longer exists.
+        """
+        if self._last_update <= 0.0:
+            return True
+        return (self._clock() - self._last_update) > CONTROL_QUALITY_LONG_GAP_SECONDS
+
+    def _has_evidence(self) -> bool:
+        """Whether the window says anything about a loop yet."""
+        return (
+            self._steering
+            and not self._stale()
+            and self._observed >= CONTROL_QUALITY_WARMUP_SECONDS
+        )
+
+    def _verdict(self) -> ControlQualityVerdict:
+        if not self._steering or self._stale():
+            return "idle"
+        if self._observed < CONTROL_QUALITY_WARMUP_SECONDS:
+            return "warmup"
+        if self._error_ema <= self._band * CONTROL_QUALITY_STABLE_BANDS:
+            return "stable"
+        if self._limited_ema >= CONTROL_QUALITY_LIMITED_SHARE:
+            return "limited"
+        return "off_target"
+
+    def _score(self) -> float | None:
+        """0..100, or ``None`` while there is nothing to score.
+
+        Absent rather than perfect: the EMAs start at zero, so a fresh or
+        just-reset window would otherwise publish a flawless 100 — and a
+        "score < 50" alert would clear itself every time the batteries
+        dropped out for a minute.
+        """
+        if not self._has_evidence():
+            return None
+        excess = max(0.0, self._error_ema - self._band)
+        accuracy = max(0.0, 1.0 - excess / (self._band * CONTROL_QUALITY_ERROR_SCALE))
+        # Accuracy alone.  An earlier revision discounted the score for a high
+        # crossing rate, which penalised a noisy meter far harder than a badly
+        # steered loop (see ControlQualityVerdict).
+        return 100.0 * accuracy
+
+
+# ---------------------------------------------------------------------------
 # Load balancer
 # ---------------------------------------------------------------------------
 
@@ -733,6 +1047,12 @@ class LoadBalancer:
         # active-set decision (see ``_compute_efficiency_deprioritized``); keeps
         # meter noise from thrashing batteries in and out of the active pool.
         self._demand_ema: float | None = None
+        # Closed-loop quality verdict for the status API and HA (see
+        # ``ControlQualityTracker``).  Measured against the balancer's own
+        # settling deadband, so it needs no setting of its own.
+        self._control_quality = ControlQualityTracker(
+            band=config.balance_deadband, clock=self._clock
+        )
 
     @property
     def efficiency_rotation_enabled(self) -> bool:
@@ -1279,7 +1599,61 @@ class LoadBalancer:
                 all_dc_under_surplus=self._all_dc_surplus_warned,
             ),
             probe=probe_snapshot,
+            control_quality=self._control_quality.snapshot(),
         )
+
+    def control_quality(self) -> ControlQualitySnapshot:
+        """How well the loop is tracking zero (see ``ControlQualityTracker``).
+
+        Same concurrency contract as :meth:`status_snapshot` — pure reads.
+        """
+        return self._control_quality.snapshot()
+
+    def _pool_out_of_headroom(self, reports: dict, grid_total: float) -> bool:
+        """Whether the pool physically cannot close the remaining error.
+
+        Two ways that happens: every battery is saturated (full, empty, or
+        clamped so it can't follow its command), or there is a surplus that
+        nothing reporting is able to absorb.  Either way the grid error that
+        remains is the pack's limit, not the controller mis-steering, and the
+        quality verdict says so instead of reporting a broken loop.
+
+        Deliberately conservative: with saturation detection off the scores
+        stay at zero and this returns ``False``, so a genuinely limited pack
+        reads as ``off_target`` rather than being excused without evidence.
+        """
+        if not reports:
+            return False
+        if grid_total < -self._cfg.balance_deadband and self._cannot_absorb(reports):
+            return True
+        return all(
+            (state := self._consumers.get(cid)) is not None
+            and state.saturation_score >= CONTROL_QUALITY_SATURATED
+            for cid in reports
+        )
+
+    def _cannot_absorb(self, reports: dict) -> bool:
+        """Whether a surplus is genuinely beyond what the pool can take.
+
+        Not simply "no AC-chargeable battery reporting".  A DC-only battery
+        (the B2500 family) cannot charge *from AC*, but while it is
+        discharging it absorbs a surplus perfectly well by discharging less —
+        it only runs out of room once it is already down at its
+        ``MIN_DC_OUTPUT`` floor.  Reading the device type alone excused every
+        surplus on an all-DC pool, so a loop hunting symmetrically about zero
+        (half its samples in surplus, battery mid-range, saturation score 0)
+        was reported as a full pack with "no headroom left" — the exact fault
+        the verdict exists to surface, labelled as nothing to fix.
+        """
+        for cid, report in reports.items():
+            if _is_ac_chargeable(report.get("device_type", "")):
+                return False
+            # Output it could still give back.  The floor is where the battery
+            # stops being able to reduce, so anything above it is headroom.
+            floor = self._effective_min_dc_output(cid, reports)
+            if parse_int(report.get("power", 0)) > floor + self._cfg.balance_deadband:
+                return False
+        return True
 
     def get_saturation(self, consumer_id: str) -> float:
         state = self._consumers.get(consumer_id)
@@ -1457,6 +1831,19 @@ class LoadBalancer:
         # blind bias the meter can never correct (e.g. through a probe handoff).
         trim_fresh = sample_id != self._trim_sample_id
         self._trim_sample_id = sample_id
+        # Control quality is judged on the raw meter, before any early return
+        # below, so a probe handoff or a fading transition doesn't leave holes
+        # in the window.  Deliberately *not* gated on ``trim_fresh`` like the
+        # trim is: a loop holding the grid perfectly still repeats its reading,
+        # and skipping those samples would let the verdict go stale precisely
+        # when the answer is "stable".  Feeding every poll is safe because the
+        # EMAs are time-weighted — three batteries polling at 1 Hz carry the
+        # same weight per second as one.
+        self._control_quality.update(
+            grid_total,
+            steering=bool(reports),
+            limited=self._pool_out_of_headroom(reports, grid_total),
+        )
         control_grid = self._predict_control_grid(reports, grid_total, sample_id)
         control_grid = self._apply_import_trim(control_grid, trim_fresh)
 

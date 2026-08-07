@@ -370,6 +370,13 @@ std::pair<std::string, std::string> build_ct002_consumer_discovery(
   return {ha_prefix + "/device/" + node_id + "/config", std::string(buf)};
 }
 
+// Value template mapping a JSON null onto Home Assistant's "unknown". A plain
+// value_json.<key> renders it as the string "None", which HA stores as a state.
+// Mirrors discovery.py _absent_as_unknown.
+static std::string absent_as_unknown(const std::string &key) {
+  return "{{ value_json." + key + " if value_json." + key + " is not none else 'unknown' }}";
+}
+
 std::pair<std::string, std::string> build_ct002_device_discovery(
     const std::string &base_topic, const std::string &device_id,
     const std::string &ha_prefix, bool efficiency_rotation) {
@@ -417,6 +424,66 @@ std::pair<std::string, std::string> build_ct002_device_discovery(
     cc["state_topic"] = state_topic;
     cc["value_template"] = "{{ value_json.consumer_count }}";
     cc["entity_category"] = "diagnostic";
+
+    // Control quality — the verdict as an enum sensor whose options are the
+    // tracker's vocabulary (HA drops a state outside them), plus a trendable
+    // score. Mirrors discovery.py; the unique_ids must stay identical so HA
+    // dedupes across the Python and ESPHome paths on a shared broker.
+    JsonObject cq = components["control_quality"].to<JsonObject>();
+    cq["platform"] = "sensor";
+    cq["unique_id"] = uid_prefix + "_control_quality";
+    cq["name"] = "Control Quality";
+    cq["device_class"] = "enum";
+    JsonArray options = cq["options"].to<JsonArray>();
+    for (const auto &state : CONTROL_QUALITY_STATES) options.add(state);
+    cq["state_topic"] = state_topic;
+    cq["value_template"] = "{{ value_json.control_quality }}";
+    cq["entity_category"] = "diagnostic";
+
+    JsonObject cqs = components["control_quality_score"].to<JsonObject>();
+    cqs["platform"] = "sensor";
+    cqs["unique_id"] = uid_prefix + "_control_quality_score";
+    cqs["name"] = "Control Quality Score";
+    cqs["state_class"] = "measurement";
+    cqs["unit_of_measurement"] = "%";
+    cqs["state_topic"] = state_topic;
+    // The score is null while the loop has nothing to be scored on; map that
+    // to HA's "unknown" rather than the string "None" (mirrors discovery.py).
+    cqs["value_template"] = absent_as_unknown("control_quality_score");
+    cqs["entity_category"] = "diagnostic";
+
+    // The evidence behind the verdict, which names no cause on purpose. Same
+    // absence rule as the score (mirrors discovery.py).
+    JsonObject cqe = components["control_quality_error"].to<JsonObject>();
+    cqe["platform"] = "sensor";
+    cqe["unique_id"] = uid_prefix + "_control_quality_error";
+    cqe["name"] = "Control Quality Mean Error";
+    cqe["device_class"] = "power";
+    cqe["state_class"] = "measurement";
+    cqe["unit_of_measurement"] = "W";
+    cqe["state_topic"] = state_topic;
+    cqe["value_template"] = absent_as_unknown("control_quality_error_w");
+    cqe["entity_category"] = "diagnostic";
+
+    JsonObject cqb = components["control_quality_in_band"].to<JsonObject>();
+    cqb["platform"] = "sensor";
+    cqb["unique_id"] = uid_prefix + "_control_quality_in_band";
+    cqb["name"] = "Control Quality Time In Band";
+    cqb["state_class"] = "measurement";
+    cqb["unit_of_measurement"] = "%";
+    cqb["state_topic"] = state_topic;
+    cqb["value_template"] = absent_as_unknown("control_quality_in_band_pct");
+    cqb["entity_category"] = "diagnostic";
+
+    JsonObject cqx = components["control_quality_crossings"].to<JsonObject>();
+    cqx["platform"] = "sensor";
+    cqx["unique_id"] = uid_prefix + "_control_quality_crossings";
+    cqx["name"] = "Control Quality Zero Crossings";
+    cqx["state_class"] = "measurement";
+    cqx["unit_of_measurement"] = "/min";
+    cqx["state_topic"] = state_topic;
+    cqx["value_template"] = absent_as_unknown("control_quality_crossings_per_min");
+    cqx["entity_category"] = "diagnostic";
 
     // The Force Rotation button only does anything when efficiency rotation is
     // enabled (min_efficient_power > 0); without it every battery stays active

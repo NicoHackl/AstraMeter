@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from astrameter.ct002.balancer import _needs_dc_output_floor
+from astrameter.ct002.balancer import CONTROL_QUALITY_STATES, _needs_dc_output_floor
 from astrameter.version_info import get_git_commit_sha
 
 _SAFE_ID_RE = re.compile(r"[^a-zA-Z0-9_-]")
@@ -21,6 +21,16 @@ def _origin() -> dict:
         "sw_version": sha or "unknown",
         "support_url": "https://github.com/tomquist/astrameter",
     }
+
+
+def _absent_as_unknown(key: str) -> str:
+    """Value template mapping a JSON ``null`` onto Home Assistant's "unknown".
+
+    A control-quality figure is null until there is something to report. A
+    plain ``value_json.<key>`` renders that as the string "None", which HA
+    stores as a state and any "below X" automation then fires on.
+    """
+    return f"{{{{ value_json.{key} if value_json.{key} is not none else 'unknown' }}}}"
 
 
 def _system_availability(base_topic: str) -> dict:
@@ -492,6 +502,70 @@ def build_ct002_device_discovery(
             "name": "Consumer Count",
             "state_topic": state_topic,
             "value_template": "{{ value_json.consumer_count }}",
+            "entity_category": "diagnostic",
+        },
+        # How well the loop is holding the grid at zero, and how it misses when
+        # it doesn't — the one entity that answers "is this working?" without
+        # reading the balancer internals. Verdict plus a 0-100 score so it can
+        # be trended and alerted on. Both come from the balancer's
+        # ControlQualityTracker; the states are its documented vocabulary.
+        "control_quality": {
+            "platform": "sensor",
+            "unique_id": f"{uid_prefix}_control_quality",
+            "name": "Control Quality",
+            "device_class": "enum",
+            "options": list(CONTROL_QUALITY_STATES),
+            "state_topic": state_topic,
+            "value_template": "{{ value_json.control_quality }}",
+            "entity_category": "diagnostic",
+        },
+        "control_quality_score": {
+            "platform": "sensor",
+            "unique_id": f"{uid_prefix}_control_quality_score",
+            "name": "Control Quality Score",
+            "state_class": "measurement",
+            "unit_of_measurement": "%",
+            "state_topic": state_topic,
+            # The score is null while the loop has nothing to be scored on
+            # (idle / warming up). Mapping that to HA's "unknown" keeps a
+            # "score below X" automation from firing on an absent reading —
+            # a plain `value_json.…` would render the string "None".
+            "value_template": _absent_as_unknown("control_quality_score"),
+            "entity_category": "diagnostic",
+        },
+        # The evidence behind the verdict. It names no cause on purpose, so
+        # these are what a user acts on: a high crossing rate beside
+        # "off_target" points at a loop overshooting past zero, a near-zero one
+        # at a loop that never gets there. Same absence rule as the score.
+        "control_quality_error": {
+            "platform": "sensor",
+            "unique_id": f"{uid_prefix}_control_quality_error",
+            "name": "Control Quality Mean Error",
+            "device_class": "power",
+            "state_class": "measurement",
+            "unit_of_measurement": "W",
+            "state_topic": state_topic,
+            "value_template": _absent_as_unknown("control_quality_error_w"),
+            "entity_category": "diagnostic",
+        },
+        "control_quality_in_band": {
+            "platform": "sensor",
+            "unique_id": f"{uid_prefix}_control_quality_in_band",
+            "name": "Control Quality Time In Band",
+            "state_class": "measurement",
+            "unit_of_measurement": "%",
+            "state_topic": state_topic,
+            "value_template": _absent_as_unknown("control_quality_in_band_pct"),
+            "entity_category": "diagnostic",
+        },
+        "control_quality_crossings": {
+            "platform": "sensor",
+            "unique_id": f"{uid_prefix}_control_quality_crossings",
+            "name": "Control Quality Zero Crossings",
+            "state_class": "measurement",
+            "unit_of_measurement": "/min",
+            "state_topic": state_topic,
+            "value_template": _absent_as_unknown("control_quality_crossings_per_min"),
             "entity_category": "diagnostic",
         },
     }

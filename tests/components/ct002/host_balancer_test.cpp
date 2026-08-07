@@ -7,6 +7,8 @@
 
 #include <gtest/gtest.h>
 
+#include <cmath>
+#include <string>
 #include <unordered_set>
 #include <utility>
 
@@ -18,12 +20,32 @@ using esphome::ct002::BalancerConfig;
 using esphome::ct002::ConsumerMode;
 using esphome::ct002::ConsumerModeKind;
 using esphome::ct002::ConsumerReport;
+using esphome::ct002::CONTROL_QUALITY_MIN_BAND_W;
+using esphome::ct002::CONTROL_QUALITY_WARMUP_SECONDS;
+using esphome::ct002::ControlQualityTracker;
 using esphome::ct002::is_ac_chargeable;
 using esphome::ct002::LoadBalancer;
 using esphome::ct002::needs_dc_output_floor;
 using esphome::ct002::NetOutputW;
 using esphome::ct002::ReportMap;
 using esphome::ct002::to_grid_reading;
+
+// Reaches the protected per-consumer state so a test can stage a full/empty
+// battery, the way the Python tests poke ``_get_consumer(...).saturation_score``.
+class TestableBalancer : public LoadBalancer {
+ public:
+  using LoadBalancer::LoadBalancer;
+  void set_saturation(const std::string &consumer_id, double score) {
+    this->get_consumer_(consumer_id).saturation_score = score;
+  }
+};
+
+TestableBalancer make_testable(double *clock, BalancerConfig cfg = {}) {
+  return TestableBalancer(cfg, /*sat_alpha=*/0.15f, /*sat_min_target=*/20.0f,
+                          /*sat_decay=*/0.995f, /*sat_grace=*/90.0f,
+                          /*sat_stall=*/60.0f, /*sat_enabled=*/false,
+                          [clock]() { return *clock; }, nullptr);
+}
 
 LoadBalancer make_balancer(BalancerConfig cfg = {}, double *clock = nullptr) {
   static double dummy = 0.0;
@@ -263,6 +285,289 @@ TEST(LoadBalancer, RemoveConsumerClearsState) {
   EXPECT_TRUE(b.get_last_target("a").has_value());
   b.remove_consumer("a");
   EXPECT_FALSE(b.get_last_target("a").has_value());
+}
+
+// ── control quality ────────────────────────────────────────────────────────
+//
+// Mirrors tests/test_control_quality.py. The verdict is the one balancer
+// figure aimed at a user, so the C++ port has to name the same situations the
+// same way — the two stacks publish it to the same HA entity.
+
+namespace {
+
+ControlQualityTracker make_tracker(double *clock, float band = 25.0f) {
+  return ControlQualityTracker(band, [clock]() { return *clock; });
+}
+
+void feed(ControlQualityTracker &t, double *clock, int count, float grid,
+          bool limited = false, double dt = 1.0) {
+  for (int i = 0; i < count; i++) {
+    *clock += dt;
+    t.update(grid, /*steering=*/true, limited);
+  }
+}
+
+}  // namespace
+
+TEST(ControlQuality, IdleUntilSomethingIsSteered) {
+  double clock = 1000.0;
+  auto t = make_tracker(&clock);
+  EXPECT_EQ(t.snapshot().verdict, "idle");
+  for (int i = 0; i < 40; i++) {
+    clock += 1.0;
+    t.update(400.0f, /*steering=*/false, /*limited=*/false);
+  }
+  EXPECT_EQ(t.snapshot().verdict, "idle");
+}
+
+TEST(ControlQuality, WarmupThenStable) {
+  double clock = 1000.0;
+  auto t = make_tracker(&clock);
+  feed(t, &clock, 9, 0.0f);
+  EXPECT_EQ(t.snapshot().verdict, "warmup");
+  feed(t, &clock, 1, 0.0f);
+  EXPECT_EQ(t.snapshot().verdict, "stable");
+  EXPECT_GT(t.snapshot().score, 95.0);
+}
+
+TEST(ControlQuality, WarmupIsADurationNotASampleCount) {
+  // A CT is polled once per battery, so counting samples would let a large
+  // pool commit to a verdict off a fraction of a second. Mirrors
+  // tests/test_control_quality.py.
+  EXPECT_DOUBLE_EQ(CONTROL_QUALITY_WARMUP_SECONDS, 10.0);
+  double fast_clock = 1000.0;
+  auto fast = make_tracker(&fast_clock);
+  feed(fast, &fast_clock, 30, 0.0f, /*limited=*/false, /*dt=*/0.075);
+  EXPECT_EQ(fast.snapshot().verdict, "warmup");
+  EXPECT_FALSE(fast.snapshot().has_score);
+
+  double slow_clock = 1000.0;
+  auto slow = make_tracker(&slow_clock);
+  feed(slow, &slow_clock, 4, 0.0f, /*limited=*/false, /*dt=*/3.0);
+  EXPECT_EQ(slow.snapshot().verdict, "stable");
+}
+
+TEST(ControlQuality, OffTargetWhetherTheErrorCrossesZeroOrNot) {
+  // The verdict describes the grid and does not guess at a cause: a limit
+  // cycle and a one-sided offset are both off_target, with the crossing rate
+  // published beside them as the evidence that separates them.
+  double hunt_clock = 1000.0;
+  auto hunting = make_tracker(&hunt_clock);
+  for (int i = 0; i < 120; i++) {
+    hunt_clock += 1.0;
+    hunting.update(i % 2 == 0 ? 250.0f : -250.0f, true, false);
+  }
+  double parked_clock = 1000.0;
+  auto parked = make_tracker(&parked_clock);
+  feed(parked, &parked_clock, 120, 250.0f);
+
+  EXPECT_EQ(hunting.snapshot().verdict, "off_target");
+  EXPECT_EQ(parked.snapshot().verdict, "off_target");
+  EXPECT_GT(hunting.snapshot().crossings_per_second, 0.4);
+  EXPECT_DOUBLE_EQ(parked.snapshot().crossings_per_second, 0.0);
+  EXPECT_NEAR(parked.snapshot().error_ema, 250.0, 1.0);
+}
+
+TEST(ControlQuality, CrossingRateIsPerSecondNotPerSample) {
+  // A per-sample fraction converges to 2*dt/T, so the same physical limit
+  // cycle would read differently for every battery count. Mirrors
+  // tests/test_control_quality.py.
+  const double period = 30.0;
+  for (double dt : {0.33, 1.0, 3.0}) {
+    double clock = 1000.0;
+    auto t = make_tracker(&clock);
+    const int n = static_cast<int>(1200.0 / dt);
+    for (int i = 0; i < n; i++) {
+      clock += dt;
+      const double phase = std::fmod(i * dt, period);
+      t.update(phase < period / 2 ? 250.0f : -250.0f, true, false);
+    }
+    EXPECT_NEAR(t.snapshot().crossings_per_second, 2.0 / period, 0.01) << "dt=" << dt;
+  }
+}
+
+TEST(ControlQuality, AJitteryMeterIsNotCountedAsCrossings) {
+  double clock = 1000.0;
+  auto t = make_tracker(&clock);
+  for (int i = 0; i < 200; i++) {
+    clock += 1.0;
+    t.update(i % 2 == 0 ? 60.0f : -60.0f, true, false);
+  }
+  EXPECT_DOUBLE_EQ(t.snapshot().crossings_per_second, 0.0);
+}
+
+TEST(ControlQuality, LimitedOutranksOffTargetButNotStable) {
+  double clock = 1000.0;
+  auto spent = make_tracker(&clock);
+  feed(spent, &clock, 120, 250.0f, /*limited=*/true);
+  EXPECT_EQ(spent.snapshot().verdict, "limited");
+
+  double held_clock = 1000.0;
+  auto held = make_tracker(&held_clock);
+  feed(held, &held_clock, 40, 4.0f, /*limited=*/true);
+  EXPECT_EQ(held.snapshot().verdict, "stable");
+}
+
+TEST(ControlQuality, OneSaturatedSampleDoesNotExcuseAWholeWindow) {
+  double clock = 1000.0;
+  auto t = make_tracker(&clock);
+  feed(t, &clock, 120, 250.0f, /*limited=*/false);
+  feed(t, &clock, 1, 250.0f, /*limited=*/true);
+  EXPECT_EQ(t.snapshot().verdict, "off_target");
+}
+
+TEST(ControlQuality, ScoreHasNoValueUntilItHasEvidence) {
+  double clock = 1000.0;
+  auto t = make_tracker(&clock);
+  EXPECT_FALSE(t.snapshot().has_score) << "fresh tracker";
+  feed(t, &clock, 60, 400.0f);
+  EXPECT_TRUE(t.snapshot().has_score);
+  EXPECT_LT(t.snapshot().score, 50.0);
+  // A gap resets the window; the score must go absent rather than jumping
+  // back to a perfect 100.
+  clock += 120.0;
+  t.update(400.0f, true, false);
+  EXPECT_EQ(t.snapshot().verdict, "warmup");
+  EXPECT_FALSE(t.snapshot().has_score);
+}
+
+TEST(ControlQuality, ABusyHouseThatKeepsComingBackIsStillStable) {
+  // Calibration guard, mirroring tests/test_control_quality.py: a step lands
+  // on the meter before any battery can answer it, so the stable allowance
+  // sits well above the settling band.
+  double clock = 1000.0;
+  auto t = make_tracker(&clock);
+  for (int cycle = 0; cycle < 20; cycle++) {
+    feed(t, &clock, 9, 5.0f);
+    feed(t, &clock, 1, 800.0f);
+  }
+  feed(t, &clock, 5, 5.0f);
+  EXPECT_EQ(t.snapshot().verdict, "stable");
+  EXPECT_GT(t.snapshot().error_ema, 25.0);
+
+  double far_clock = 1000.0;
+  auto far = make_tracker(&far_clock);
+  feed(far, &far_clock, 200, 200.0f);
+  EXPECT_EQ(far.snapshot().verdict, "off_target");
+}
+
+TEST(ControlQuality, BandFloorAndScoreBounds) {
+  double clock = 1000.0;
+  auto zero_band = make_tracker(&clock, 0.0f);
+  feed(zero_band, &clock, 60, 10.0f);
+  EXPECT_FLOAT_EQ(zero_band.snapshot().band, CONTROL_QUALITY_MIN_BAND_W);
+  EXPECT_EQ(zero_band.snapshot().verdict, "stable");
+
+  double far_clock = 1000.0;
+  auto far_off = make_tracker(&far_clock);
+  feed(far_off, &far_clock, 120, 50000.0f);
+  EXPECT_DOUBLE_EQ(far_off.snapshot().score, 0.0);
+}
+
+TEST(ControlQuality, VerdictIsIndependentOfPollCadence) {
+  double fast_clock = 1000.0;
+  auto fast = make_tracker(&fast_clock);
+  feed(fast, &fast_clock, 300, 250.0f, false, 0.45);
+  double slow_clock = 1000.0;
+  auto slow = make_tracker(&slow_clock);
+  feed(slow, &slow_clock, 45, 250.0f, false, 3.0);
+  EXPECT_EQ(fast.snapshot().verdict, "off_target");
+  EXPECT_EQ(slow.snapshot().verdict, "off_target");
+  EXPECT_NEAR(fast.snapshot().score, slow.snapshot().score, 1.0);
+}
+
+TEST(ControlQuality, LongGapStartsANewWindowAndGoesIdle) {
+  double clock = 1000.0;
+  auto t = make_tracker(&clock);
+  feed(t, &clock, 60, 400.0f);
+  EXPECT_EQ(t.snapshot().verdict, "off_target");
+  // Every battery left: the last verdict must not hang around describing a
+  // pool that no longer exists.
+  clock += 600.0;
+  EXPECT_EQ(t.snapshot().verdict, "idle");
+  t.update(0.0f, true, false);
+  EXPECT_EQ(t.snapshot().verdict, "warmup");
+  EXPECT_DOUBLE_EQ(t.snapshot().error_ema, 0.0);
+}
+
+TEST(LoadBalancer, ControlQualityGradesEveryPollIncludingRepeatedReadings) {
+  double clock = 1000.0;
+  auto b = make_balancer({}, &clock);
+  ReportMap reports;
+  reports["a"] = ConsumerReport{"HMG-50", "A", 300.0f};
+  // A settled loop repeats its meter reading; the import trim skips those, the
+  // quality verdict must not.
+  for (int i = 0; i < 120; i++) {
+    clock += 1.0;
+    b.compute_target("a", ConsumerMode{}, reports, 0.0f, {}, {}, {});
+  }
+  const auto snap = b.control_quality();
+  EXPECT_EQ(snap.verdict, "stable");
+  EXPECT_GE(snap.samples, 100);
+}
+
+TEST(LoadBalancer, ASaturatedPoolReadsAsLimited) {
+  // The saturation half of pool_out_of_headroom_, which had no C++ coverage.
+  double clock = 1000.0;
+  auto b = make_testable(&clock);
+  ReportMap reports;
+  reports["a"] = ConsumerReport{"HMG-50", "A", 0.0f};
+  for (int i = 0; i < 60; i++) {
+    clock += 1.0;
+    b.compute_target("a", ConsumerMode{}, reports, 400.0f, {}, {}, {400.0f, 0.0f, 0.0f});
+  }
+  EXPECT_EQ(b.control_quality().verdict, "off_target");
+  for (int i = 0; i < 120; i++) {
+    clock += 1.0;
+    b.set_saturation("a", 1.0);
+    b.compute_target("a", ConsumerMode{}, reports, 400.0f, {}, {}, {400.0f, 0.0f, 0.0f});
+  }
+  EXPECT_EQ(b.control_quality().verdict, "limited");
+}
+
+TEST(LoadBalancer, OneHealthyBatteryKeepsThePoolAccountable) {
+  double clock = 1000.0;
+  auto b = make_testable(&clock);
+  ReportMap reports;
+  reports["a"] = ConsumerReport{"HMG-50", "A", 0.0f};
+  reports["b"] = ConsumerReport{"HMG-50", "A", 0.0f};
+  for (int i = 0; i < 180; i++) {
+    clock += 1.0;
+    b.set_saturation("a", 1.0);
+    b.set_saturation("b", 0.0);
+    b.compute_target("a", ConsumerMode{}, reports, 400.0f, {}, {}, {400.0f, 0.0f, 0.0f});
+  }
+  // One battery still has headroom, so the pool is not excused.
+  EXPECT_EQ(b.control_quality().verdict, "off_target");
+}
+
+TEST(LoadBalancer, SurplusWithNoAcChargeableBatteryReadsAsLimited) {
+  // Already at 0 W: it genuinely has nothing left with which to absorb.
+  double clock = 1000.0;
+  auto b = make_balancer({}, &clock);
+  ReportMap reports;
+  reports["hma"] = ConsumerReport{"HMA-2", "A", 0.0f};
+  for (int i = 0; i < 60; i++) {
+    clock += 1.0;
+    b.compute_target("hma", ConsumerMode{}, reports, -400.0f, {}, {}, {});
+  }
+  EXPECT_EQ(b.control_quality().verdict, "limited");
+}
+
+TEST(LoadBalancer, ADischargingDcBatteryStillHasRoomForASurplus) {
+  // A B2500 cannot charge from AC, but it absorbs a surplus by discharging
+  // less. Excusing every surplus on device type alone reported a symmetric
+  // hunt as a full pack. Mirrors tests/test_control_quality.py.
+  double clock = 1000.0;
+  auto b = make_balancer({}, &clock);
+  ReportMap reports;
+  reports["hma"] = ConsumerReport{"HMA-2", "A", 300.0f};
+  for (int i = 0; i < 400; i++) {
+    clock += 1.0;
+    const float grid = (i % 2 == 0) ? 400.0f : -400.0f;
+    b.compute_target("hma", ConsumerMode{}, reports, grid, {}, {}, {grid, 0.0f, 0.0f});
+  }
+  EXPECT_EQ(b.control_quality().verdict, "off_target");
 }
 
 TEST(LoadBalancer, ResetConsumerClearsLastTarget) {
