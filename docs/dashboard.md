@@ -122,8 +122,17 @@ built from the add-on's own options — the same settings as the add-on's
 Configuration page, with labels and help text. Saving writes them back through
 the Supervisor and restarts the add-on, which can take a minute.
 
+The form opens on the two groups a working setup needs — **Grid measurement**
+and **Emulated meter** — and folds the rest away behind named, counted
+headings: battery control, meter reading, signal filters, balancer tuning,
+Marstek's cloud, and the add-on's own settings. Open one to see its fields.
+Every setting says what it does underneath, and a box left empty shows the
+value that applies instead of it, so `0.2` in a greyed-out **Balance gain**
+means that is what you get by leaving it alone.
+
 The form is generated from the add-on's live option schema, so a new option
-appears here as soon as the add-on gains it.
+appears here as soon as the add-on gains it — in a trailing **Other** group
+until it is given a description.
 
 **Grid power sensor** and **Export power sensor** are entity pickers rather
 than text boxes: they list the Home Assistant entities that could plausibly
@@ -168,16 +177,31 @@ Passwords and tokens are shown as `••••••••`. Leave them untouch
 stored value; the real secret is never sent to your browser and never has to be
 retyped to edit an unrelated field.
 
-### Switching between them
+### Migrating between them
 
-In the add-on the Configuration Mode card can move you between the two:
+Which one you want comes down to what your setup needs:
 
-- **Switch to a config file** copies the configuration that is running right
-  now into `/config/astrameter.ini`, points the add-on's `custom_config` option
-  at it and restarts. You start from what is actually running, not a blank file.
-  An existing file with that name is never overwritten.
-- **Switch to guided setup** clears `custom_config` and goes back to the add-on
-  options. Your config file is left on disk, not deleted.
+- **Guided setup** is the easy path — labelled fields, entity pickers, values
+  checked before they save. Grid power has to come from a Home Assistant
+  sensor, and only the settings the add-on exposes can be changed.
+- **A config file** is the advanced path — everything AstraMeter can do: any
+  power source, several meters at once, every setting there is. You maintain
+  the file yourself, and nothing checks it until AstraMeter starts.
+
+In the add-on, **Migrate to a config file** / **Migrate back to guided setup**
+at the foot of the Configuration tab moves you between them. It is folded shut
+by default: this is a one-time move, not a setting.
+
+- **Migrating to a config file** writes the configuration that is running right
+  now to `/config/astrameter.ini`, points the add-on's `custom_config` option
+  at it and restarts. You start from what is actually running, not a blank
+  file. An existing file with that name is never overwritten — AstraMeter then
+  runs *that* file instead. The add-on options stay on the add-on's
+  Configuration page but stop having any effect.
+- **Migrating back to guided setup** clears `custom_config` and goes back to
+  the add-on options as they stand today — your file is *not* copied into them,
+  so check them first if they have not been touched in a while. The file itself
+  is left on disk unchanged, and migrating to it again reads it back.
 
 Either way you are asked to confirm first, and the add-on then restarts — the
 dashboard goes quiet for up to a minute and reconnects on its own.

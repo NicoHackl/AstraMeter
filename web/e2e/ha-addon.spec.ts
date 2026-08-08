@@ -12,7 +12,7 @@ const SENTINEL = "\u2022".repeat(8);
 
 /**
  * The Home Assistant add-on path: the guided form, the entity picker and the
- * configuration-mode switch, against a stand-in Supervisor serving the
+ * migration to a config file, against a stand-in Supervisor serving the
  * repository's own `ha_addon/config.yaml`.
  */
 
@@ -31,11 +31,44 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
-/** The form card specifically — the mode card also mentions "guided setup". */
-function form(page: import("@playwright/test").Page) {
+type Page = import("@playwright/test").Page;
+
+/** The form card specifically, not the other cards the tab carries. */
+function form(page: Page) {
   return page.locator(".card", {
     has: page.locator('h2:text-is("Guided setup")'),
   });
+}
+
+/**
+ * A disclosure, opened if it is not already.
+ *
+ * Never a bare click: <details> toggles, so clicking one that is already open
+ * shuts it and every later step then fails on a hidden control.
+ */
+async function open(fold: ReturnType<Page["locator"]>) {
+  if ((await fold.getAttribute("open")) === null) {
+    await fold.locator("summary").click();
+  }
+  return fold;
+}
+
+/** One advanced group of the guided form, by its heading. */
+function openFold(page: Page, title: string) {
+  return open(
+    page.locator("details.opt-fold", {
+      has: page.locator(`.fold-title:text-is("${title}")`),
+    }),
+  );
+}
+
+/** Every advanced group, for a test that is not about the disclosure. */
+async function openFolds(page: Page) {
+  const folds = page.locator("details.opt-fold");
+  // Counted once: clicking a summary opens a group, it never adds or removes
+  // one, so the count cannot move under the loop.
+  const total = await folds.count();
+  for (let i = 0; i < total; i++) await open(folds.nth(i));
 }
 
 test("detects add-on options mode and refuses to edit the generated file", async () => {
@@ -63,13 +96,14 @@ test("renders the guided form from the add-on's own schema", async ({ page }) =>
     "Grid measurement",
     "Emulated meter",
   ]);
+  await openFolds(page);
   // Types come from the schema: a bounded float, an enum, a password.
   await expect(page.getByLabel("Grid prediction trust")).toHaveAttribute(
     "max",
     "1",
   );
-  await expect(page.locator("select").first()).toBeVisible();
-  const secret = page.locator('input[type="password"]').first();
+  await expect(form(page).locator("select").first()).toBeVisible();
+  const secret = form(page).locator('input[type="password"]').first();
   await expect(secret).toBeVisible();
 
   // Supervisor serves the schema as a list of field descriptors, not as the
@@ -83,6 +117,44 @@ test("renders the guided form from the add-on's own schema", async ({ page }) =>
   await expect(page.locator('button:text("+ Add section")')).toHaveCount(0);
 });
 
+test("the form opens on the essentials and documents every field", async ({
+  page,
+}) => {
+  await page.goto(`${BASE_URL}#/config`);
+  await expect(form(page)).toBeVisible();
+
+  // What a working setup needs is in front of you...
+  await expect(page.getByLabel("Grid power sensor", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("Emulated device")).toBeVisible();
+  // ...and the other fifty knobs are folded away, named and counted so they
+  // can still be found.
+  const control = page.locator("details.opt-fold", {
+    has: page.locator('.fold-title:text-is("Battery control")'),
+  });
+  await expect(control).not.toHaveAttribute("open", /.*/);
+  await expect(control.locator(".fold-count")).toContainText("settings");
+  await expect(page.getByLabel("Grid prediction trust")).toBeHidden();
+
+  await control.locator("summary").click();
+  await expect(page.getByLabel("Grid prediction trust")).toBeVisible();
+  await expect(control).toContainText("The defaults suit most homes");
+
+  // Every field says what it does — including the checkboxes, which used to
+  // be a label and nothing else.
+  const trust = page.locator("label.field", { hasText: "Grid prediction trust" });
+  await expect(trust.locator(".help")).toContainText("trust");
+  const active = page.locator("label.field", { hasText: "Active control" });
+  await expect(active.locator("input[type=checkbox]")).toBeVisible();
+  await expect(active.locator(".help")).not.toBeEmpty();
+
+  // An empty box says what leaving it empty means, not merely that it may be.
+  await openFold(page, "Balancer tuning");
+  await expect(page.getByLabel("Balance gain")).toHaveAttribute(
+    "placeholder",
+    "0.2",
+  );
+});
+
 test("an option type the form cannot edit does not break it", async ({ page }) => {
   // Supervisor sends a repeated option as a list. Parsing it as a validator
   // string threw inside render, which froze the page on its loading state —
@@ -91,6 +163,7 @@ test("an option type the form cannot edit does not break it", async ({ page }) =
   await expect(form(page)).toBeVisible();
   await expect(page.locator("body")).not.toContainText("Loading add-on options");
 
+  await openFolds(page);
   const field = page.locator("label.field", { hasText: "Extra Hosts" });
   await expect(field).toContainText("Configuration page");
   await expect(field.locator("input")).toBeDisabled();
@@ -106,6 +179,7 @@ test("saving writes the options back through the Supervisor", async ({ page }) =
   await page.goto(`${BASE_URL}#/config`);
   await expect(form(page)).toBeVisible();
 
+  await openFold(page, "Battery control");
   await page.getByLabel("Grid prediction trust").fill("0.75");
   await page.getByLabel("Rotation interval (s)").fill("1200");
   await page.locator('button:text("Save only")').click();
@@ -127,6 +201,7 @@ test("a stored secret never reaches the browser and is not overwritten", async (
 
   await page.goto(`${BASE_URL}#/config`);
   await expect(form(page)).toBeVisible();
+  await openFold(page, "Battery control");
   await page.getByLabel("Grid prediction trust").fill("0.6");
   await page.locator('button:text("Save only")').click();
   await expect(page.locator(".banner")).toContainText("Saved");
@@ -325,9 +400,17 @@ test("a three-phase meter can be entered one sensor per phase", async ({ page })
   expect(readAddonOptions(stack).power_input_alias).toBe("sensor.grid_power");
 });
 
-test("switching to a config file materializes what is running", async ({ page }) => {
+test("migrating to a config file materializes what is running", async ({ page }) => {
   await page.goto(`${BASE_URL}#/config`);
-  const button = page.locator('button:text("Switch to a config file")');
+  // Folded away below the editor: a once-if-ever move should not sit in front
+  // of someone who came to change a setting.
+  const fold = page.locator("details.migrate");
+  const button = page.locator('button:text("Migrate to a config file…")');
+  await expect(button).toBeHidden();
+  await fold.locator("summary").click();
+
+  // Opened, it says what the move costs before it offers the button.
+  await expect(fold).toContainText("stop having any effect");
   await expect(button).toBeVisible();
   await button.click();
 
@@ -335,7 +418,7 @@ test("switching to a config file materializes what is running", async ({ page })
   // the add-on off the air for a minute.
   const confirm = page.locator(".confirm");
   await expect(confirm).toContainText("/config/astrameter.ini");
-  await expect(page.locator('button:text("Yes, switch and restart")')).toBeVisible();
+  await expect(page.locator('button:text("Yes, migrate and restart")')).toBeVisible();
   // Backing out leaves everything alone.
   await page.locator('button:text("Cancel")').click();
   await expect(page.locator(".confirm")).toHaveCount(0);
@@ -349,8 +432,9 @@ test("switching to a config file materializes what is running", async ({ page })
   await page.goto(`${BASE_URL}#/config`);
   await expect(page.locator(".confirm")).toHaveCount(0);
 
+  await open(fold);
   await button.click();
-  await page.locator('button:text("Yes, switch and restart")').click();
+  await page.locator('button:text("Yes, migrate and restart")').click();
   await expect(page.locator(".banner")).toContainText("Configuration mode changed");
   // The restart is deferred until after this response, so the call the page
   // made must have succeeded rather than dying with the container.

@@ -29,7 +29,12 @@ import {
   reportingConsumers,
   type AppState,
 } from "./model.js";
-import { normalizeAddonSchema, parseAddonSchema } from "./option-meta.js";
+import {
+  GROUPS,
+  OPTION_META,
+  normalizeAddonSchema,
+  parseAddonSchema,
+} from "./option-meta.js";
 import { view } from "./view.js";
 import {
   entityList,
@@ -549,6 +554,65 @@ ok(normalizeAddonSchema({ ct_mac: "str?" }).ct_mac.optional, "the mapping form p
   has(html, "disabled", "but not editable here");
   has(html, "Configuration page", "and it says where to edit it");
   lacks(html, "undefined", "no undefined leaks into the guided form");
+
+  // Everything but the two groups a working setup needs is folded away, and
+  // an option nobody has written copy for still renders — in the last group.
+  has(html, '<details class="opt-fold">', "the rest of the form is folded shut");
+  has(html, "Battery control", "an advanced group keeps its name on the fold");
+  has(html, "Options this dashboard has no description for yet", "unknown options say so");
+  ok(
+    html.indexOf("Grid measurement") < html.indexOf("Battery control"),
+    "the groups follow GROUPS order, not the order Supervisor sent",
+  );
+  // The checkbox rows carry help too: a bare switch is as undocumented as a
+  // bare number box.
+  has(html, "Work out each battery&#39;s own target", "a boolean option is documented");
+  // An empty box says what empty means rather than just "optional".
+  has(html, 'placeholder="0.5"', "a default is shown in the box it applies to");
+}
+
+// ── every add-on option is documented ──
+//
+// The add-on's own Configuration page describes all of these (translations/
+// en.yaml); a "guided" form of bare labels would be strictly worse than the
+// page it replaces. config.yaml is the list that matters — an option added
+// there and nowhere else would otherwise land in the form unexplained.
+{
+  const yaml = readFileSync(
+    new URL("../../../ha_addon/config.yaml", import.meta.url),
+    "utf8",
+  );
+  const options: string[] = [];
+  let inSchema = false;
+  for (const line of yaml.split("\n")) {
+    if (/^schema:/.test(line)) {
+      inSchema = true;
+      continue;
+    }
+    if (!inSchema) continue;
+    const match = /^ {2}([a-z0-9_]+):/.exec(line);
+    if (match) options.push(match[1]);
+    else if (/^\S/.test(line)) break;
+  }
+  ok(options.length > 40, "the add-on's schema block was found and parsed");
+
+  const titles = new Set(GROUPS.map((g) => g.title));
+  for (const key of options) {
+    const meta = OPTION_META[key];
+    ok(Boolean(meta), `${key} has an entry in OPTION_META`);
+    if (!meta) continue;
+    ok(Boolean(meta.help), `${key} says what it does`);
+    ok(titles.has(meta.group), `${key} is in a group the form renders`);
+    ok(
+      !meta.placeholder || !/\bdefault\b/i.test(meta.help ?? ""),
+      `${key} states its default once, not twice`,
+    );
+  }
+  // The other direction: copy for an option the add-on dropped is dead weight
+  // that reads as current.
+  for (const key of Object.keys(OPTION_META)) {
+    ok(options.includes(key), `OPTION_META.${key} is still an add-on option`);
+  }
 }
 
 // ── config.ini editor: typed controls from the backend's key metadata ──
@@ -628,6 +692,57 @@ const emptyHtml = renderToString(
 );
 has(emptyHtml, "This config file is empty", "an empty file explains itself");
 
+// In the add-on, a config file means the add-on options are inert — the one
+// thing a user cannot deduce from the editor in front of them — and the way
+// back has its own cost: the options are whatever they were, not this file.
+{
+  const addonFile: AppState = {
+    ...live,
+    tab: "config",
+    snapshot: {
+      ...snapshot,
+      capabilities: { ...snapshot.capabilities, config_mode: "ha_advanced", ha_options: true },
+      service: { ...snapshot.service, config_path: "/config/astrameter.ini" },
+    },
+  };
+  const html = renderToString(h("div", null, ...view(addonFile, actions, iniConfig)));
+  has(html, "/config/astrameter.ini — the add-on options are ignored", "the live source is named");
+  has(html, "Migrate back to guided setup", "and the way back is offered");
+  has(html, "not copied into the add-on options", "with the stale-options risk stated");
+}
+
+// Outside the add-on there is nothing to migrate to.
+lacks(iniHtml, "Migrate", "the standalone editor offers no migration");
+
+// A read-only dashboard renders no editor, so the source line is all it says
+// about where the settings come from — and in guided setup there is no file
+// behind them at all (a null config path is what makes the mode ha_simple),
+// so the file wording would state the exact opposite of what is running.
+{
+  const readOnly = (mode: string, path?: string): string => {
+    const state: AppState = {
+      ...live,
+      tab: "config",
+      snapshot: {
+        ...snapshot,
+        capabilities: { ...snapshot.capabilities, config_mode: mode as any, controls: false },
+        service: { ...snapshot.service, config_path: path },
+      },
+    };
+    return renderToString(h("div", null, ...view(state, actions, initialConfigState())));
+  };
+  const guided = readOnly("ha_simple");
+  has(guided, "configured from the add-on options", "guided setup names the options");
+  lacks(guided, "add-on options are ignored", "and never claims a file overrides them");
+  has(guided, "read-only", "the read-only banner is still there");
+  lacks(guided, "Migrate", "and a dashboard that cannot write is offered no migration");
+  has(
+    readOnly("ha_advanced", "/config/astrameter.ini"),
+    "/config/astrameter.ini — the add-on options are ignored",
+    "a config file names itself and says the options are inert",
+  );
+}
+
 // ── Home Assistant entity picker ──
 const HA_SCHEMA = normalizeAddonSchema([
   { name: "power_input_alias", required: true, type: "string" },
@@ -652,7 +767,16 @@ const haState: AppState = {
 const pickerHtml = renderToString(h("div", null, ...view(haState, actions, withEntities)));
 has(pickerHtml, 'role="combobox"', "the sensor field is a combobox");
 has(pickerHtml, "Grid power — currently 412.8 W", "the chosen sensor resolves to a readable line");
-has(pickerHtml, "Switch to a config file", "the mode switch is offered in the add-on");
+// The migration reads as a footnote, not a heading: folded shut, below the
+// editor, and answering what it costs before it offers the button.
+has(pickerHtml, "Migrate to a config file", "the migration is offered in the add-on");
+has(pickerHtml, "Now: add-on options", "and names the source in effect");
+has(pickerHtml, '<details class="card migrate">', "folded shut, not opened for everyone");
+has(pickerHtml, "stop having any effect", "the cost of migrating is spelled out");
+ok(
+  pickerHtml.indexOf("Guided setup") < pickerHtml.indexOf("Migrate to a config file"),
+  "and it sits below the editor rather than above it",
+);
 // Closed until the field is focused, so a form of them is not a wall of lists.
 lacks(pickerHtml, "combo-list", "the suggestions stay closed until asked for");
 has(pickerHtml, 'aria-expanded="false"', "and the field says so");
