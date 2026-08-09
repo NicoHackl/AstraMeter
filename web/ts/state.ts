@@ -28,7 +28,12 @@ export interface State {
     /// this one starts true — unlike dashboardEnabled, which is the Python
     /// service's opt-in.
     esphomeDashboard: boolean;
+    /// ESPHome only. The board's page has no login of its own and no ingress
+    /// to sit behind, so its controls stay opt-in — unlike dashboardAllowWrite,
+    /// which the Python service and the add-on both ship on.
+    esphomeControls: boolean;
     dashboardAllowWrite: boolean;
+    dashboardDirectAccess: boolean;
     webServerPort: string;
     throttleInterval: string;
     waitForNextMessage: string;
@@ -59,9 +64,15 @@ export function defaultState(): State {
       deviceIds: "",
       skipPowermeterTest: false,
       webConfigEnabled: false,
-      dashboardEnabled: false,
+      // On by default, matching the service itself. It is read-only until
+      // `dashboardAllowWrite` says otherwise.
+      dashboardEnabled: true,
       esphomeDashboard: true,
-      dashboardAllowWrite: false,
+      esphomeControls: false,
+      // On by default, matching the service and the add-on.
+      dashboardAllowWrite: true,
+      // Unauthenticated access to the add-on's port. Off unless asked for.
+      dashboardDirectAccess: false,
       webServerPort: "",
       throttleInterval: "",
       waitForNextMessage: "",
@@ -151,7 +162,9 @@ export function migrate(s: any): State {
         webConfigEnabled: asBool(sg.webConfigEnabled, dg.webConfigEnabled),
         dashboardEnabled: asBool(sg.dashboardEnabled, dg.dashboardEnabled),
         esphomeDashboard: asBool(sg.esphomeDashboard, dg.esphomeDashboard),
+        esphomeControls: asBool(sg.esphomeControls, dg.esphomeControls),
         dashboardAllowWrite: asBool(sg.dashboardAllowWrite, dg.dashboardAllowWrite),
+        dashboardDirectAccess: asBool(sg.dashboardDirectAccess, dg.dashboardDirectAccess),
         webServerPort: asStr(sg.webServerPort, dg.webServerPort),
         throttleInterval: asStr(sg.throttleInterval, dg.throttleInterval),
         waitForNextMessage: asStr(sg.waitForNextMessage, dg.waitForNextMessage),

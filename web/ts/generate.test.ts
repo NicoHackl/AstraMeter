@@ -556,18 +556,30 @@ has(dashOn, "WEB_SERVER_PORT = 8123", "dashboard: port emitted without the INI e
 
 const dashReadOnly = generateConfigIni({
   target: "python",
-  general: { deviceTypes: ["ct002"], dashboardEnabled: true },
+  general: { deviceTypes: ["ct002"], dashboardEnabled: true, dashboardAllowWrite: false },
   meters: [{ type: "shelly", phases: 1, fields: { TYPE: "3EMPro", IP: "192.168.1.50" }, tuning: {} }],
 });
 has(dashReadOnly, "DASHBOARD_ENABLED = True", "dashboard: on");
-lacks(dashReadOnly, "DASHBOARD_ALLOW_WRITE", "dashboard: read-only unless asked");
+has(dashReadOnly, "DASHBOARD_ALLOW_WRITE = False", "dashboard: asking for read-only is written out");
+
+// Unset means the defaults, and both of them are on.
+const dashDefault = generateConfigIni({
+  target: "python",
+  general: { deviceTypes: ["ct002"], webServerPort: "8123" },
+  meters: [{ type: "shelly", phases: 1, fields: { TYPE: "3EMPro", IP: "192.168.1.50" }, tuning: {} }],
+});
+has(dashDefault, "DASHBOARD_ENABLED = True", "dashboard: on by default");
+has(dashDefault, "DASHBOARD_ALLOW_WRITE = True", "dashboard: writable by default");
+has(dashDefault, "WEB_SERVER_PORT = 8123", "dashboard: default-on dashboard still carries the port");
 
 const dashOff = generateConfigIni({
   target: "python",
-  general: { deviceTypes: ["ct002"] },
+  general: { deviceTypes: ["ct002"], dashboardEnabled: false, dashboardAllowWrite: true, webServerPort: "8123" },
   meters: [{ type: "shelly", phases: 1, fields: { TYPE: "3EMPro", IP: "192.168.1.50" }, tuning: {} }],
 });
-lacks(dashOff, "DASHBOARD_ENABLED", "dashboard: absent when off");
+has(dashOff, "DASHBOARD_ENABLED = False", "dashboard: turning it off is written out");
+lacks(dashOff, "DASHBOARD_ALLOW_WRITE", "dashboard: no write flag for a dashboard that never runs");
+has(dashOff, "WEB_SERVER_PORT = 8123", "dashboard: a chosen port survives turning the dashboard off");
 
 // On an ESP32 the firmware serves the dashboard unless told not to, so the
 // on-and-read-only case is the default and writes nothing at all.
@@ -584,13 +596,25 @@ lacks(eyDash, "dashboard", "esp/dashboard: on is the default, so nothing is emit
 const eyDashWritable = generateEsphome({
   target: "esphome",
   esphome: { name: "my-ct002", ctType: "HME-4", board: "esp32dev" },
-  general: { deviceTypes: ["ct002"], esphomeDashboard: true, dashboardAllowWrite: true },
+  general: { deviceTypes: ["ct002"], esphomeDashboard: true, esphomeControls: true },
   meters: [
     { type: "homeassistant", phases: 1, fields: { CURRENT_POWER_ENTITY: "sensor.p" }, tuning: {} },
   ],
 });
 has(eyDashWritable, "  dashboard:", "esp/dashboard: sub-block appears once it carries an option");
-has(eyDashWritable, "    controls: true", "esp/dashboard: writes are opt-in and emitted");
+has(eyDashWritable, "    controls: true", "esp/dashboard: controls are opt-in and emitted");
+
+// The service ships writes on; a board has no login to sit behind, so its
+// controls must not follow that flag.
+const eyDashServiceWrites = generateEsphome({
+  target: "esphome",
+  esphome: { name: "my-ct002", ctType: "HME-4", board: "esp32dev" },
+  general: { deviceTypes: ["ct002"], esphomeDashboard: true, dashboardAllowWrite: true },
+  meters: [
+    { type: "homeassistant", phases: 1, fields: { CURRENT_POWER_ENTITY: "sensor.p" }, tuning: {} },
+  ],
+});
+lacks(eyDashServiceWrites, "controls: true", "esp/dashboard: DASHBOARD_ALLOW_WRITE does not turn on board controls");
 
 const eyNoDash = generateEsphome({
   target: "esphome",
@@ -622,6 +646,16 @@ const haDashDefault = generateHomeAssistant({
   ct: { fields: {} },
 });
 lacks(haDashDefault, "dashboard_allow_write", "ha-opts: nothing emitted when writes match the add-on default");
+lacks(haDashDefault, "dashboard_direct_access", "ha-opts: nothing emitted when the port stays behind ingress");
+
+// Reaching the page on the add-on's port instead of through ingress.
+const haDirect = generateHomeAssistant({
+  target: "homeassistant",
+  general: { deviceTypes: ["ct002"], dashboardAllowWrite: true, dashboardDirectAccess: true },
+  meters: [{ type: "homeassistant", phases: 1, fields: { CURRENT_POWER_ENTITY: "sensor.p" }, tuning: {} }],
+  ct: { fields: {} },
+});
+has(haDirect, "dashboard_direct_access: true", "ha-opts: direct access is emitted when asked for");
 
 // The add-on's sidebar panel *is* the dashboard, so it cannot be turned off
 // there — no `dashboard` option exists to emit, whatever the form says.

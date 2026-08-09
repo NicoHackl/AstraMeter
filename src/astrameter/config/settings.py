@@ -70,12 +70,16 @@ class GeneralSettings:
     enable_web_server: bool = True
     web_config_enabled: bool = False
     web_server_port: int = 52500
-    #: The live status dashboard. Off by default: outside Home Assistant the
-    #: web port is unauthenticated, so serving it has to be a deliberate act.
-    dashboard: bool = False
+    #: The live status dashboard. On by default — it is how most users see
+    #: what AstraMeter is doing. Set it to ``False`` to serve nothing.
+    dashboard: bool = True
     #: Whether the dashboard may write — edit the configuration and steer
-    #: batteries — rather than only display.
-    dashboard_allow_write: bool = False
+    #: batteries — rather than only display. On by default: a dashboard that
+    #: cannot change anything is half a dashboard, and the add-on has shipped
+    #: it this way from the start. Outside Home Assistant nothing authenticates
+    #: the web port, so anyone who can reach it can use those controls; set
+    #: this to ``False`` for a read-only page.
+    dashboard_allow_write: bool = True
     #: Serve the dashboard on the plain web port as well as through Home
     #: Assistant ingress. Ingress carries the user's identity; the port does
     #: not, so reaching it directly is a separate opt-in.

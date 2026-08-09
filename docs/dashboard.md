@@ -92,25 +92,26 @@ Two add-on options control it:
 This holds for a `custom_config` file too: `DASHBOARD_ENABLED` and
 `ENABLE_WEB_SERVER` in that file are ignored, because the sidebar panel and the
 Supervisor's health check both depend on them. The file's
-`DASHBOARD_ALLOW_WRITE` and `DASHBOARD_DIRECT_ACCESS` still apply — note that
-both default to `False`, so a custom config file gives you a **read-only**
-dashboard unless you set `DASHBOARD_ALLOW_WRITE = True`.
+`DASHBOARD_ALLOW_WRITE` and `DASHBOARD_DIRECT_ACCESS` still apply, and both
+default the same way the add-on options do — writes on, direct access off.
 
 ### Docker / standalone
 
-Off by default. Add to `[GENERAL]` in your `config.ini`:
+**On by default, and able to change things** — open `http://<host>:52500/`.
+The port follows `WEB_SERVER_PORT`. Nothing else is needed: outside the add-on
+there is no Home Assistant in front of the page, so this address is the
+dashboard, unauthenticated — see [Security](#security).
+
+Two keys in `[GENERAL]` narrow it:
 
 ```ini
 [GENERAL]
-DASHBOARD_ENABLED = True
-# Optional: allow the dashboard to edit config.ini and control batteries.
-DASHBOARD_ALLOW_WRITE = True
+# Read-only: show everything, change nothing (default True).
+DASHBOARD_ALLOW_WRITE = False
+# Stop serving the dashboard — only the health check is left, plus the
+# standalone config editor if WEB_CONFIG_ENABLED is on (default True).
+DASHBOARD_ENABLED = False
 ```
-
-Then open `http://<host>:52500/`. The port follows `WEB_SERVER_PORT`. Nothing
-else is needed: outside the add-on there is no Home Assistant in front of the
-page, so this address is the dashboard, unauthenticated — see
-[Security](#security).
 
 ### ESPHome on an ESP32
 
@@ -290,7 +291,7 @@ from:
 |---|---|---|
 | Add-on, sidebar (ingress) | yes | your Home Assistant login |
 | Add-on, `http://<host>:52500` | only with `dashboard_direct_access` | **nothing** |
-| Docker / standalone | with `DASHBOARD_ENABLED` | **nothing** |
+| Docker / standalone | yes, unless `DASHBOARD_ENABLED = False` | **nothing** |
 | ESPHome, `http://<device>/` | yes, unless `dashboard: false` | **nothing** |
 
 Because the add-on runs with host networking, port 52500 is on your LAN
@@ -300,8 +301,12 @@ access. The check is the connection's source address, not a header, so it
 cannot be faked by a client on your network.
 
 Running AstraMeter yourself there is no ingress, so that port is the only way
-in and `DASHBOARD_ENABLED` is the whole opt-in — `DASHBOARD_DIRECT_ACCESS`
-does not apply (it is only read when the add-on runs from a config file).
+in and the page is served on it, **writable** — anyone who can reach it can
+edit your `config.ini` and steer your batteries. Set
+`DASHBOARD_ALLOW_WRITE = False` on a network you do not control, or
+`DASHBOARD_ENABLED = False` to show nothing at all.
+`DASHBOARD_DIRECT_ACCESS` does not apply (it is only read when the add-on runs
+from a config file).
 
 On ESPHome the page exposes no configuration, and no battery controls unless
 `controls: true` asks for them — but even read-only it is an unauthenticated
@@ -334,7 +339,8 @@ at start-up.
 `http://<host>:52500` directly rather than through the sidebar. Either use the
 sidebar or turn on `dashboard_direct_access`, understanding that it is
 unauthenticated. Running AstraMeter yourself this does not apply — if that
-address is refused, `DASHBOARD_ENABLED` is off.
+address is refused, check that AstraMeter is running, that you are on the port
+`WEB_SERVER_PORT` gives it, and that nothing sets `DASHBOARD_ENABLED = False`.
 
 **"Lost contact with AstraMeter."** The page could not reach the service for
 two polls. It keeps retrying, dims the values and switches every relative time
