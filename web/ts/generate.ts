@@ -597,6 +597,15 @@ export function generateEsphome(state: State): string {
   if (fb) ctLines.push(fb);
   for (const b of ct002OptionalBlocks(state.ct)) ctLines.push(b);
 
+  // The live status dashboard, served by the board itself. It is on by
+  // default, so the only things worth writing down are the two deviations:
+  // leaving it out of the firmware, and allowing writes.
+  if (state.general && state.general.esphomeDashboard === false) {
+    ctLines.push(`${IND}dashboard: false`);
+  } else if (state.general && state.general.dashboardAllowWrite) {
+    ctLines.push(`${IND}dashboard:\n${IND}${IND}controls: true`);
+  }
+
   if (wantInsights) {
     const mf = state.mqttInsights.fields || {};
     const sub = [`${IND}mqtt_insights:`];

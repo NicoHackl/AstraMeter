@@ -48,8 +48,13 @@ supported on the ESP yet), see **[esphome-powermeters.md](../esphome-powermeters
 
 ## Optional sub-blocks
 
-Two optional sub-blocks nest under the same `ct002:` key:
+Optional sub-blocks nest under the same `ct002:` key:
 
+- **`dashboard:`** — serves AstraMeter's [live status dashboard](../dashboard.md)
+  from the ESP32 itself: the same page the add-on shows, at
+  `http://<device>/`. **On by default** — the block is only needed to change
+  something, and `dashboard: false` leaves it out of the firmware. Read-only
+  unless you add `controls: true`.
 - **`mqtt_insights:`** — publishes Home Assistant Device Discovery (one device
   per battery + a parent CT002 device with manual-target / active / auto-target /
   distribution-weight controls and a force-rotation button) and answers

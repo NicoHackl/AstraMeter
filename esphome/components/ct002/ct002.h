@@ -11,16 +11,32 @@
 #include <vector>
 
 #include "esphome/core/component.h"
+#include "esphome/core/defines.h"
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/socket/socket.h"
 
 #include "balancer.h"
+#include "controls.h"
 #include "pid.h"
 #include "sensor_backed.h"
+#include "status_json.h"
 #include "wrapper_base.h"
+
+// The dashboard's read/write state layer (dashboard_state.cpp) is compiled for
+// a `dashboard:` build and for the test-hooks build, which drives the same
+// document and the same setters over UDP because the host platform has no
+// ESPHome web server to serve them from.
+#if defined(USE_CT002_DASHBOARD) || defined(USE_CT002_TEST_HOOKS)
+#define USE_CT002_DASHBOARD_STATE
+#endif
 
 namespace esphome {
 namespace ct002 {
+
+// Mirror of Python's _bucket_for_phase: A/B/C → their buckets, "D" → the
+// combined ABC bucket, anything else (the normalized "0") → x. Indexes both
+// the PhaseBucket enum below and status::BUCKET_NAMES.
+size_t bucket_index_for_phase(const std::string &phase);
 
 // Cross-talk aggregation bucket indices, mirroring Python's PHASE_BUCKETS
 // ("x", "A", "B", "C", "ABC"): x collects unassigned/inspection ("0")
@@ -114,6 +130,21 @@ class CT002Component : public Component {
   void setup() override;
   void loop() override;
   void dump_config() override;
+
+  /// Age in ms of the most recent raw sensor reading across the live phases,
+  /// or nothing when no phase has ever reported. Freshness comes from the
+  /// sensor feed rather than the control loop: with no battery polling, the
+  /// last reply can be minutes old while the sensor is live.
+  optional<uint32_t> freshest_sensor_age_ms() const {
+    const uint32_t now_ms = ::esphome::millis();
+    optional<uint32_t> freshest;
+    for (uint8_t i = 0; i < this->num_phases_ && i < 3; i++) {
+      if (this->raw_stamp_ms_[i] == 0) continue;
+      const uint32_t age = now_ms - this->raw_stamp_ms_[i];
+      if (!freshest.has_value() || age < *freshest) freshest = age;
+    }
+    return freshest;
+  }
   float get_setup_priority() const override { return setup_priority::AFTER_WIFI; }
 
   // Configuration setters (called from to_code()).
@@ -167,6 +198,32 @@ class CT002Component : public Component {
 
   // Observability (MQTT insights and future automation hooks read these).
   size_t reporting_consumer_count() const;
+
+#ifdef USE_CT002_DASHBOARD_STATE
+  // ── Dashboard status API (dashboard_state.cpp) ───────────────────────
+  // Mirrors CT002.status_snapshot() and the powermeter health snapshot in
+  // the Python stack. Plain synchronous attribute reads: the dashboard
+  // builds these from loop(), between UDP handlers, so nothing can tear.
+  //
+  // *wall_now* is the current wall-clock epoch, or 0 when the clock has not
+  // synced — the one place that decides whether a mark can be emitted as a
+  // timestamp or has to stay an age.
+  status::DeviceStatus status_snapshot(double wall_now) const;
+  status::PowermeterStatus powermeter_status() const;
+
+  /// Whether this id names a battery the status document already shows —
+  /// either one that has polled, or a placeholder holding a saved setting.
+  ///
+  /// The dashboard's write path checks this first. Every setter creates the
+  /// consumer if it is missing, which is what lets a retained MQTT command
+  /// hold a setting for a battery that has not reported yet; on an
+  /// unauthenticated HTTP endpoint the same behaviour would let any caller
+  /// mint entries in `consumers_` until the heap ran out.
+  bool knows_consumer(const std::string &consumer_id) const {
+    return this->consumers_.count(consumer_id) > 0 ||
+           this->consumer_overrides_.count(consumer_id) > 0;
+  }
+#endif
 
   // ── MQTT-insights integration API ────────────────────────────────────
   // Snapshot of one consumer's state for publish-time JSON building.
@@ -449,6 +506,16 @@ class CT002Component : public Component {
   double mock_clock_seconds_{0.0};
 #endif
 };
+
+#ifdef USE_CT002_DASHBOARD_STATE
+// Apply one already-validated dashboard control (dashboard_state.cpp). False
+// means the field is not one this firmware knows. Main loop only — these walk
+// the consumer map, which the HTTP handler must never touch from its own task.
+bool apply_consumer_control(CT002Component *ct002, const std::string &consumer_id,
+                            const std::string &field, const controls::ControlValue &value);
+bool apply_device_control(CT002Component *ct002, const std::string &field,
+                          const controls::ControlValue &value);
+#endif
 
 }  // namespace ct002
 }  // namespace esphome

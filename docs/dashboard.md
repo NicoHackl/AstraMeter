@@ -1,6 +1,6 @@
 # Live status dashboard
 
-An opt-in web page that shows what AstraMeter is doing right now — grid power,
+A web page that shows what AstraMeter is doing right now — grid power,
 every battery's target and reported power, the health of your power source, and
 the balancer's internal state — and lets you change your configuration without
 editing files by hand.
@@ -11,6 +11,7 @@ editing files by hand.
 - [Enabling it](#enabling-it)
   - [Home Assistant add-on](#home-assistant-add-on)
   - [Docker / standalone](#docker--standalone)
+  - [ESPHome on an ESP32](#esphome-on-an-esp32)
 - [Changing your configuration](#changing-your-configuration)
   - [Guided setup](#guided-setup)
   - [Config file](#config-file)
@@ -111,9 +112,83 @@ else is needed: outside the add-on there is no Home Assistant in front of the
 page, so this address is the dashboard, unauthenticated — see
 [Security](#security).
 
+### ESPHome on an ESP32
+
+On by default — there is nothing to add. Flash a `ct002:` configuration and
+open `http://<device>/`: the same page, served straight from the ESP32's flash.
+
+To leave it out of the firmware entirely, taking the web server and the page
+with it:
+
+```yaml
+ct002:
+  power_sensor_l1: grid_l1
+  dashboard: false
+```
+
+**Nothing else is required** — no MQTT broker, no Home Assistant, no second
+component. The board serves the page itself, and with `controls: true` below it
+is also a complete way to steer your batteries, so MQTT Insights is an option
+rather than a prerequisite.
+
+The board serves a **reduced version** of the page. Everything it can measure
+is there — grid power, every battery with its target and saturation, the
+balancer's internals and its [control-quality verdict](ct002.md#control-quality),
+the health of the grid-power sensor, plus MQTT Insights' connection state for
+those who run that sub-block — but:
+
+- **There is no Configuration tab.** An ESPHome device's settings are compiled
+  into its firmware, so there would be nothing to save; change your YAML and
+  re-flash instead.
+- **The page is read-only until you say otherwise.** Add `controls: true` to
+  steer batteries from it — see below.
+- **Times are relative** ("4 s ago") rather than clock times until the device
+  has a synced clock; add ESPHome's [`time:`](https://esphome.io/components/time/)
+  component if you want absolute timestamps.
+
+| Option | Default | What it does |
+|---|---|---|
+| `controls` | `false` | Lets the page change batteries: manual target, auto/manual, active, distribution weight, efficiency window, min DC output, and the device's active control / force rotation. |
+| `path` | `/`, or `/astrameter` when `web_server:` is configured | Where the page is mounted. |
+| `id` | generated | The usual ESPHome component id. |
+
+```yaml
+ct002:
+  power_sensor_l1: grid_l1
+  dashboard:
+    controls: true
+```
+
+Controls are off by default because the page has **no login of its own** — see
+[Security](#security). They accept exactly the values the MQTT entities and the
+Python dashboard accept, and — when `mqtt_insights:` is configured — a change
+made here is written back to the broker's retained command topic, so it is not
+something the next reconnect quietly reverts.
+
+The dashboard shares ESPHome's HTTP server with `web_server:` and
+`captive_portal:`, so they all use one port. `web_server:` already serves
+ESPHome's own page at `/`, and only one handler can have a URL — so on a device
+that has one, the dashboard moves itself to `http://<device>/astrameter/`
+rather than contesting the root. The address it settled on is in the boot log:
+
+```text
+[astrameter.dashboard]: AstraMeter dashboard:
+[astrameter.dashboard]:   URL: http://<device>:80/astrameter/
+```
+
+Set `path:` yourself to put it somewhere else. Asking for `path: /` while
+`web_server:` is configured is refused at validation time rather than letting
+the two race.
+
+It costs about 90 KiB of flash — the compressed page plus ESPHome's HTTP
+server — and no measurable RAM while nobody is watching. An ESP32 with 4 MB is
+comfortable; ESP8266 is not supported, and neither are boards too tight for the
+extra 90 KiB, which is what `dashboard: false` is for.
+
 ## Changing your configuration
 
-The Configuration tab adapts to how AstraMeter is configured.
+The Configuration tab adapts to how AstraMeter is configured. It is absent
+entirely on ESPHome, where the configuration lives in the firmware.
 
 ### Guided setup
 
@@ -216,6 +291,7 @@ from:
 | Add-on, sidebar (ingress) | yes | your Home Assistant login |
 | Add-on, `http://<host>:52500` | only with `dashboard_direct_access` | **nothing** |
 | Docker / standalone | with `DASHBOARD_ENABLED` | **nothing** |
+| ESPHome, `http://<device>/` | yes, unless `dashboard: false` | **nothing** |
 
 Because the add-on runs with host networking, port 52500 is on your LAN
 whether or not you use it. There, everything except `/health` is refused
@@ -227,8 +303,27 @@ Running AstraMeter yourself there is no ingress, so that port is the only way
 in and `DASHBOARD_ENABLED` is the whole opt-in — `DASHBOARD_DIRECT_ACCESS`
 does not apply (it is only read when the add-on runs from a config file).
 
+On ESPHome the page exposes no configuration, and no battery controls unless
+`controls: true` asks for them — but even read-only it is an unauthenticated
+view of your household's power on the LAN, and with controls on, anyone who can
+reach the device can re-target your batteries. If that matters, add ESPHome's
+[`web_server:`](https://esphome.io/components/web_server/) with its `auth:`
+block and give the dashboard a `path:` of its own: both mount on the same HTTP
+server, so that login covers the dashboard too. Otherwise leave `controls:`
+off, or set `dashboard: false`.
+
 Turning off `dashboard_allow_write` keeps the dashboard readable while blocking
 every configuration change and battery command.
+
+On ESPHome two things are worth knowing now that the page is on by default.
+ESPHome's HTTP server sends `Access-Control-Allow-Origin: *` on every response,
+so `/api/status` is readable by **any website you visit** while on the same
+network, not only by something already on your LAN — it reports your device
+name, battery addresses, MQTT broker and live household power. Writes are not
+exposed that way: they require `Content-Type: application/json`, which a
+browser cannot send cross-origin without a preflight the device refuses. Either
+`dashboard: false` or ESPHome's `web_server:` with an `auth:` block closes
+both.
 
 ## Troubleshooting
 

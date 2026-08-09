@@ -529,12 +529,47 @@ function extrasCard(): HTMLElement {
   ];
   if (mi.enabled) insightsBody.push(el("div", { class: "field-grid" }, fieldGroup(insightsFields, mi.fields, {})));
 
+  // The board's own status page. The other targets offer this in the general
+  // options (it is a config.ini / add-on setting there); on an ESP32 it is a
+  // ct002: sub-block, so it belongs with the other two.
+  const dashboardBody =
+    state.target === "esphome"
+      ? [
+          el("hr", {}),
+          el("h3", { text: "Live status dashboard" }),
+          fieldControl(
+            {
+              key: "esphomeDashboard",
+              label: "Serve the live status dashboard from the board",
+              help: "On by default. A status page at http://<device>/ showing grid power, every battery and the balancer's state. Configuration is not editable there — an ESP32's settings live in this file.",
+              type: "checkbox",
+            },
+            state.general,
+            { structural: true },
+          ),
+          // The page has no login of its own, so writes stay opt-in.
+          state.general.esphomeDashboard
+            ? fieldControl(
+                {
+                  key: "dashboardAllowWrite",
+                  label: "Allow battery changes from the dashboard",
+                  help: "Lets anyone who can reach the device steer your batteries from the page. Leave off for a read-only dashboard.",
+                  type: "checkbox",
+                },
+                state.general,
+                {},
+              )
+            : null,
+        ]
+      : [];
+
   return card(5, "Optional extras", "Skip this unless you want Marstek-app integration or a custom MQTT broker.", [
     el("h3", { text: "Marstek cloud registration" }),
     ...marstekBody,
     el("hr", {}),
     el("h3", { text: isHa ? "Custom MQTT broker" : "MQTT Insights / Home Assistant" }),
     ...insightsBody,
+    ...dashboardBody,
   ]);
 }
 

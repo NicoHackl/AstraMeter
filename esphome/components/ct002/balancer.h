@@ -254,6 +254,60 @@ struct BalancerConsumerState {
   double last_saturation_update{0.0};
 };
 
+// ── Read-only status surface (dashboard / diagnostics) ──────────────────
+// Mirrors the *Snapshot dataclasses in balancer.py field-for-field. Built by
+// LoadBalancer::status_snapshot / snapshot_consumer; consumed by the ct002
+// dashboard's status document.
+
+struct BalancerConsumerSnapshot {
+  std::optional<float> last_target;
+  std::optional<float> last_intent;
+  std::optional<float> last_intent_reading;
+  double saturation{0.0};
+  double saturation_grace_remaining{0.0};
+  double fade_weight{1.0};
+  bool deprioritized{false};
+  float pace_cap{0.0f};
+  int pace_sign{0};
+  float osc_score{0.0f};
+  int osc_last_sign{0};
+};
+
+struct PredictorSnapshot {
+  std::optional<float> grid_estimate;
+  float trust{0.0f};
+  int innovation_sign{0};
+  float pool_output{0.0f};
+};
+
+struct ImportTrimSnapshot {
+  int dwell{0};
+  int dwell_target{IMPORT_TRIM_DWELL};
+  float gate{IMPORT_TRIM_GATE_W};
+  bool engaged{false};
+};
+
+struct EfficiencySnapshot {
+  std::optional<float> demand_ema;
+  std::vector<std::string> priority_order;
+  std::vector<std::string> deprioritized;
+  double last_rotation_age{0.0};
+  bool all_dc_under_surplus{false};
+};
+
+struct ProbeSnapshot {
+  std::string candidate_id;
+  std::vector<std::string> active_ids;
+  std::vector<std::string> backup_ids;
+  int proof_samples{0};
+  float requested_power_abs{0.0f};
+  double started_age{0.0};
+  double deadline_in{0.0};
+};
+
+// BalancerSnapshot, which gathers all of the above, is defined below
+// ControlQualitySnapshot — it carries one by value.
+
 struct ProbeState {
   std::string candidate_id;
   std::vector<std::string> active_ids;
@@ -330,6 +384,17 @@ struct ControlQualitySnapshot {
   int samples{0};
 };
 
+// The whole-balancer view for the status API (see the snapshot structs above).
+// Mirrors balancer.py BalancerSnapshot.
+struct BalancerSnapshot {
+  bool efficiency_rotation_enabled{false};
+  PredictorSnapshot predictor;
+  ImportTrimSnapshot import_trim;
+  EfficiencySnapshot efficiency;
+  ControlQualitySnapshot control_quality;
+  std::optional<ProbeSnapshot> probe;
+};
+
 // Judges the closed loop the way a user would: by what the meter shows. How
 // far off the loop sits (error_ema) says whether there is a problem; whether
 // it is the loop's fault is decided separately, and a pool with no headroom
@@ -395,6 +460,13 @@ class LoadBalancer {
   std::optional<float> get_last_target(const std::string &consumer_id) const;
   // Absolute net-output target intended pre-pacing (see BalancerConsumerState).
   std::optional<float> get_last_intent(const std::string &consumer_id) const;
+
+  bool efficiency_rotation_enabled() const { return this->cfg_.min_efficient_power > 0.0f; }
+  // Per-consumer control state, or absent if the consumer was never steered.
+  std::optional<BalancerConsumerSnapshot> snapshot_consumer(const std::string &consumer_id) const;
+  // Whole-balancer control state. Pure attribute reads, like the Python
+  // original: the caller snapshots the live device tree between UDP polls.
+  BalancerSnapshot status_snapshot() const;
 
  protected:
   BalancerConsumerState &get_consumer_(const std::string &consumer_id);
