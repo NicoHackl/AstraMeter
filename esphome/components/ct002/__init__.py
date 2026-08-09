@@ -631,6 +631,85 @@ def _astrameter_version() -> str:
     return ""
 
 
+def _is_sha(value: str) -> bool:
+    """40 hex chars, or 64 for a repo using SHA-256 object names."""
+    return len(value) in (40, 64) and all(c in "0123456789abcdef" for c in value)
+
+
+def _ref_dirs(git_dir: Path) -> list[Path]:
+    """Directories a ref may live in, nearest first.
+
+    A linked worktree keeps its own HEAD but shares the branch refs, so the
+    directory `.git` pointed at has to fall back to the one its ``commondir``
+    names — otherwise a worktree checked out to a branch resolves to nothing.
+    """
+    dirs = [git_dir]
+    commondir = git_dir / "commondir"
+    if commondir.is_file():
+        common = Path(commondir.read_text(encoding="utf-8").strip())
+        if not common.is_absolute():
+            common = (git_dir / common).resolve()
+        dirs.append(common)
+    return dirs
+
+
+def _read_ref(git_dir: Path, ref: str) -> str:
+    """Resolve one ref out of *git_dir*, loose file first, then `packed-refs`."""
+    loose = git_dir / ref
+    if loose.is_file():
+        sha = loose.read_text(encoding="utf-8").strip()
+        return sha if _is_sha(sha) else ""
+    # Packed by `git gc`, so the loose file is gone.
+    packed = git_dir / "packed-refs"
+    if packed.is_file():
+        for line in packed.read_text(encoding="utf-8").splitlines():
+            sha, _, name = line.partition(" ")
+            if name.strip() == ref and _is_sha(sha):
+                return sha
+    return ""
+
+
+def _astrameter_git_commit() -> str:
+    """SHA of the checkout this component ships in, or "" when there is none.
+
+    The Python stack gets its SHA from ``GIT_COMMIT_SHA``, baked in when CI
+    builds the image; a firmware has no such build step, so the SHA is read
+    out of the repo `esphome compile` is reading the sources from. `.git` is
+    read directly rather than shelling out to `git`, which need not be
+    installed wherever ESPHome runs — and a shallow clone (what ESPHome makes
+    of a `github://` source) has HEAD like any other.
+
+    Best-effort, like the version above: no repo, an odd layout, or a ref
+    this cannot resolve means the page shows no commit rather than a wrong
+    one.
+    """
+    root = Path(__file__).resolve().parents[3]
+    git_dir = root / ".git"
+    try:
+        if git_dir.is_file():
+            # A linked worktree: `.git` is a pointer to a private directory
+            # holding this worktree's own HEAD.
+            pointer = git_dir.read_text(encoding="utf-8").split("gitdir:", 1)[1]
+            git_dir = Path(pointer.strip())
+            if not git_dir.is_absolute():
+                git_dir = (root / git_dir).resolve()
+        head = (git_dir / "HEAD").read_text(encoding="utf-8").strip()
+        if not head.startswith("ref:"):
+            # Detached — checking out a tag or a SHA, as a release build does.
+            return head if _is_sha(head) else ""
+        ref = head.split(":", 1)[1].strip()
+        for ref_dir in _ref_dirs(git_dir):
+            sha = _read_ref(ref_dir, ref)
+            if sha:
+                return sha
+    # Anything unreadable or not a repository at all, including a `.git` file
+    # whose bytes are not text (UnicodeDecodeError is a ValueError, not an
+    # OSError): codegen must not fail over a cosmetic field.
+    except (OSError, IndexError, UnicodeDecodeError):
+        pass
+    return ""
+
+
 CONFIG_SCHEMA = cv.All(
     _resolve_dashboard,
     cv.Schema(
@@ -923,5 +1002,6 @@ async def _to_code_dashboard(config, ct002_var):
     # Shown on the page's Diagnostics tab, so a user can tell which build
     # they are looking at without reading the firmware log.
     cg.add(var.set_version(_astrameter_version()))
+    cg.add(var.set_git_commit(_astrameter_git_commit()))
     logger_config = CORE.config.get("logger") or {}
     cg.add(var.set_log_level(str(logger_config.get("level", ""))))
