@@ -72,6 +72,12 @@ function generalSection(state: State): string {
   // reading the security section — so it is written out whenever the page is
   // served, not only when it deviates.
   if (dashboardEnabled) lines.push(`DASHBOARD_ALLOW_WRITE = ${boolToIni(g.dashboardAllowWrite !== false)}`);
+  // Only emitted when the user named something: the default allowlist (IPs,
+  // localhost, .local) covers almost every setup, and an empty line here would
+  // read as a knob that needs turning.
+  if (dashboardEnabled && !isBlank(g.dashboardAllowedHosts)) {
+    lines.push(`DASHBOARD_ALLOWED_HOSTS = ${g.dashboardAllowedHosts}`);
+  }
   // The port carries the health check too, so a chosen one is kept even when
   // neither the dashboard nor the editor is served on it.
   if (!isBlank(g.webServerPort)) {
@@ -611,8 +617,20 @@ export function generateEsphome(state: State): string {
   // service's DASHBOARD_ALLOW_WRITE they stay off until asked for.
   if (state.general && state.general.esphomeDashboard === false) {
     ctLines.push(`${IND}dashboard: false`);
-  } else if (state.general && state.general.esphomeControls) {
-    ctLines.push(`${IND}dashboard:\n${IND}${IND}controls: true`);
+  } else if (state.general && (state.general.esphomeControls || !isBlank(state.general.dashboardAllowedHosts))) {
+    const dash = [`${IND}dashboard:`];
+    if (state.general.esphomeControls) dash.push(`${IND}${IND}controls: true`);
+    // The board's IP and its `.local` mDNS name are allowed without asking, so
+    // this only appears when the user named something else — a reverse proxy.
+    const hosts = String(state.general.dashboardAllowedHosts || "")
+      .split(",")
+      .map((h) => h.trim())
+      .filter(Boolean);
+    if (hosts.length) {
+      dash.push(`${IND}${IND}allowed_hosts:`);
+      for (const name of hosts) dash.push(`${IND}${IND}${IND}- ${name}`);
+    }
+    ctLines.push(dash.join("\n"));
   }
 
   if (wantInsights) {
@@ -726,6 +744,9 @@ export function generateHomeAssistant(state: State): string {
   // login that ingress provides. Off in the add-on, so only opting in is worth
   // emitting.
   if (g.dashboardDirectAccess) add("dashboard_direct_access", true);
+  // Only meaningful alongside that port, but harmless on its own, so it is
+  // emitted whenever the user named a host rather than gated on it.
+  add("dashboard_allowed_hosts", g.dashboardAllowedHosts);
 
   // CT identity / control-mode / efficiency / DC keep-alive options.
   const ctf = (state.ct && state.ct.fields) || {};
