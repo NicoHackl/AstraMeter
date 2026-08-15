@@ -97,10 +97,25 @@ What differs is the document behind it:
   its `_CONSUMER_SETTERS` table. The bounds MUST match: a value one stack
   accepts and the other refuses would be settable from one dashboard and then
   silently reverted by the next retained MQTT replay. It is opt-in on the
-  firmware (`controls:`, default off) because that page has no login, and it
-  requires `Content-Type: application/json` — a header a browser cannot set
-  cross-origin without a preflight, which is what stops any page the owner
-  happens to visit from POSTing to a device on their LAN.
+  firmware (`controls:`, default off) because that page has no login.
+
+  **Both** stacks require `Content-Type: application/json` on every write — a
+  header a browser cannot set cross-origin without a preflight neither answers,
+  which is what stops any page the owner happens to visit from POSTing to a
+  device on their LAN. Both compare the parsed **media type**, and must keep
+  doing so: what makes a request preflight-free is the *essence*, the part
+  before the first `;`, so `text/plain; x=application/json` crosses origins
+  freely and a substring test on the raw header would admit it — with the
+  bodiless restart routes never re-checking the format afterwards. Python reads
+  `request.content_type`; the firmware calls `controls::is_json_content_type`,
+  which lives in `controls.{h,cpp}` rather than `dashboard.cpp` so a host gtest
+  can drive it. Neither the source-address gate in `web_server.py` nor
+  the firmware's `controls:` flag helps there: such a request arrives from the
+  owner's own browser, and the write lands whether or not the reply can be
+  read. Python enforces it in `WebServer._add`, so every `POST` route is
+  covered by construction; the firmware does it in `handle_control_`. Keep both
+  — and note `request.json()` parses a body whatever its declared type, so
+  dropping the check on the Python side silently reopens this.
 
   Three divergences there are deliberate, so don't "restore" them: the
   firmware **rejects a device write with no `value`** (except `force_rotation`,
@@ -142,6 +157,19 @@ server for the `host` platform** (`web_server` is declared ESP-only and
   the test-control channel (`status` / `control` commands in `test_hooks.cpp`,
   which is why `dashboard_state.cpp` compiles for test-hook builds too).
 - The ESP32 compile matrix — everything HTTP.
+
+That last one is the **only** thing that compiles `dashboard.cpp`, and it runs
+here, so don't leave it to CI after touching that file:
+
+```bash
+cd tests/components/ct002 && esphome compile test.dashboard.esp32-idf.yaml
+```
+
+The first run fetches the toolchain and dies on the TLS-intercepting proxy:
+PlatformIO builds its own venv and overrides `REQUESTS_CA_BUNDLE` with
+`certifi.where()`, so the CA has to go into *that* bundle —
+`cat /root/.ccr/ca-bundle.crt >> /root/.platformio/penv/lib/python3.11/site-packages/certifi/cacert.pem`.
+After that a config compiles in ~2.5 min.
 
 `src/astrameter/static/dashboard.html` and
 `esphome/components/ct002/dashboard_asset.h` (the same page gzipped, for the
