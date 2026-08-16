@@ -17,8 +17,7 @@ from astrameter.ct002.balancer import device_capabilities
 from . import protocol
 from .b2500_steering import MIN_CHANNEL_OUTPUT_W, B2500SteeringController
 from .firmware_steering import FirmwareSteeringController
-from .venus_d_steering import VenusDSteeringController
-from .venus_e_steering import VenusESteeringController
+from .venus_integer_steering import VenusIntegerSteeringController
 
 logger = logging.getLogger("astra_sim.battery")
 
@@ -127,29 +126,19 @@ class BatterySimulator:
             else []
         )
 
-        # Venus D (VNSD-0) is AC-coupled like the rest of the Venus class but
-        # runs a different self-consumption loop: an integer proportional
-        # integrator rather than the float ramp (see :mod:`venus_d_steering`).
-        # Its setpoint convention is the opposite of the ramp controller's —
-        # positive = discharge, negative = charge — so ``hi`` is the discharge
-        # limit and ``lo`` the (negative) charge limit, and the simulator target
-        # is the setpoint *unnegated*.
-        self._is_venus_d = (
-            self.meter_dev_type.upper().startswith("VNSD") and not self._is_dc_output
+        # The AC-coupled Venus units that aren't an HMG-50 (VNSA-0, VNSD-0,
+        # VNSE3-0) all run one law: an integer proportional integrator behind an
+        # input-conditioning gate, verified against all three firmwares (see
+        # :mod:`venus_integer_steering`). Its setpoint convention is the
+        # opposite of the HMG-50 ramp controller's — positive = discharge,
+        # negative = charge — so ``hi`` is the discharge limit and ``lo`` the
+        # (negative) charge limit, and the simulator target is the setpoint
+        # *unnegated*.
+        self._is_venus_integer = (
+            self.meter_dev_type.upper().startswith("VNS") and not self._is_dc_output
         )
-        self._venus_d_steering = (
-            VenusDSteeringController() if self._is_venus_d else None
-        )
-
-        # Venus E (VNSE3-0) runs that *same* integer integrator behind its own
-        # input-conditioning gate — verified against the archived VNSE3-0
-        # firmware, which contains none of the HMG-50 float gain table (see
-        # :mod:`venus_e_steering`). It shares the Venus D's setpoint convention.
-        self._is_venus_e = (
-            self.meter_dev_type.upper().startswith("VNSE") and not self._is_dc_output
-        )
-        self._venus_e_steering = (
-            VenusESteeringController() if self._is_venus_e else None
+        self._venus_steering = (
+            VenusIntegerSteeringController() if self._is_venus_integer else None
         )
 
         # Optionally start already in motion (net output W; positive = discharge,
@@ -163,10 +152,8 @@ class BatterySimulator:
             self._current_power = float(initial_power)
             self._target_power = float(initial_power)
             self._requested_target = float(initial_power)
-            if self._venus_d_steering is not None:
-                self._venus_d_steering.setpoint = round(initial_power)
-            elif self._venus_e_steering is not None:
-                self._venus_e_steering.setpoint = round(initial_power)
+            if self._venus_steering is not None:
+                self._venus_steering.setpoint = round(initial_power)
             elif not self._b2500_channels:
                 # Ramp controller: target = -setpoint, so seed the inverse. (The
                 # B2500's command-domain regulator converges from the seeded
@@ -360,11 +347,10 @@ class BatterySimulator:
         gates), whose sign is the inverse of the simulator's (setpoint positive =
         charge), so the simulator target is the negated setpoint. A DC-coupled
         B2500 instead runs :class:`B2500SteeringController` on its DC output (see
-        :meth:`_steer_b2500_output`). A Venus D (VNSD-0) runs
-        :class:`VenusDSteeringController` and a Venus E (VNSE3-0)
-        :class:`VenusESteeringController` — the same integer integrator, the
-        latter behind its own input gate — whose setpoints are already in the
-        simulator's sign (positive = discharge) and are applied directly.
+        :meth:`_steer_b2500_output`). Every other AC-coupled Venus (VNSA-0,
+        VNSD-0, VNSE3-0) runs :class:`VenusIntegerSteeringController`, whose
+        setpoint is already in the simulator's sign (positive = discharge) and
+        is applied directly.
 
         Cross-battery share-split: a real battery divides the grid value by the
         number of batteries reported on its phase (the ``*_chrg_nb`` count), so
@@ -386,38 +372,23 @@ class BatterySimulator:
             self._steer_b2500_output(grid_reading)
             return
 
-        if self._venus_d_steering is not None:
-            # Venus D: integer integrator, positive setpoint = discharge. Its own
-            # grid reading (used only for the per-step branch) tracks the CT
-            # value in this closed loop. ±15 W deadband in combined (phase D)
-            # mode, ±11 W otherwise.
-            vd_setpoint = self._venus_d_steering.step(
-                grid_reading,
-                float(self.max_discharge_power),
-                -float(self.max_charge_power),
-                measured_grid=grid_reading,
-                phase_count=2 if self.phase == "D" else 1,
-            )
-            self._apply_ct_derived_target(float(vd_setpoint))
-            return
-
         # *_chrg_nb for this battery's phase (fields 9/10/11 → indices 8/9/10).
         phase_count = field(8 + "ABC".index(self.phase))
 
-        if self._venus_e_steering is not None:
-            # Venus E: the same integer integrator, behind its own gate. The
-            # per-step branch and the gate both key off the battery's own
-            # measured output (not the grid value) — see :mod:`venus_e_steering`
-            # — and the ``*_chrg_nb`` count both splits the reading and widens
-            # the final deadband.
-            ve_setpoint = self._venus_e_steering.step(
+        if self._venus_steering is not None:
+            # Venus A / D / E: integer integrator behind its own gate, positive
+            # setpoint = discharge. Both the gate and the integrator's per-step
+            # branch key off the unit's own measured output rather than the CT
+            # value (see :mod:`venus_integer_steering`), and the ``*_chrg_nb``
+            # count both splits the reading and widens the park to ±15 W.
+            venus_setpoint = self._venus_steering.step(
                 grid_reading,
                 float(self.max_discharge_power),
                 -float(self.max_charge_power),
                 out=self._current_power,
                 device_count=phase_count,
             )
-            self._apply_ct_derived_target(float(ve_setpoint))
+            self._apply_ct_derived_target(float(venus_setpoint))
             return
 
         setpoint = self._steering.step(

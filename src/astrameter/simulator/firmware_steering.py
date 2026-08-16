@@ -10,19 +10,16 @@ per-step arithmetic, and the gate thresholds and ordering, are the exact values
 the HMG-50 firmware uses.
 
 Scope: the gain table and ramp arithmetic here are the **HMG-50** (Venus C)
-ones. The VNSE3-0 (Venus E) does *not* run this law — its firmware contains
-none of the gain-table constants, and its CT-following loop is the Venus D
-integrator behind a gate of its own (a tighter ±10 W deadband and a one-shot
-spike filter); it is modelled in :mod:`astrameter.simulator.venus_e_steering`.
+ones, and they are HMG-50-*only*. No other Venus runs this law: the VNSA-0,
+VNSD-0 and VNSE3-0 firmwares contain none of the gain-table constants and share
+an integer integrator behind a gate of their own (a tighter ±10 W deadband and
+a one-shot spike filter), modelled in
+:mod:`astrameter.simulator.venus_integer_steering`.
 
-The **VNSD-0** (Venus D) does *not* use this law at all -- none of the float
-gain-table / ``sqrt``-step constants apply. Its CT-following loop is an integer
-proportional integrator -- ``setpoint += (ctrl_ratio/100)*error - 5 W`` clamped
-to the configured charge/discharge limits with a +/-11 W (single) / +/-15 W
-(combined) deadband -- modelled separately in
-:mod:`astrameter.simulator.venus_d_steering`. Neither this controller nor its
-GOLDEN vectors model Venus D. See ``docs/ct002-ct003-protocol.md`` ("Model
-scope", VNSD-0 note).
+That shared law is ``setpoint += (ctrl_ratio/100)*g - 5 W``, clamped to the
+configured charge/discharge limits and parked inside +/-11 W (alone on the
+bucket) or +/-15 W (sharing it). Neither this controller nor its GOLDEN vectors
+model it. See ``docs/ct002-ct003-protocol.md`` ("Model scope").
 
 Conventions
 -----------
