@@ -132,6 +132,13 @@ class BatterySpec:
     max_discharge_power: int = 2500
     capacity_wh: float = 5120.0
     initial_soc: float = 0.6
+    # How fast measured output follows the commanded setpoint (W/s). Unlike the
+    # steering laws, this figure is **not** firmware-derived: the Venus Control
+    # MCU applies level caps and derates to the setpoint but no rate limit at
+    # all (verified — see venus_integer_steering), so the slewing belongs
+    # entirely to the separate inverter sub-processor, whose images carry no
+    # anchor to read it from. Settling it needs a bench trace (command a step,
+    # log reported power). It shapes transients only, never the control law.
     ramp_rate: float = 400.0
     poll_interval: float = 1.0
     startup_delay: float = 2.0
