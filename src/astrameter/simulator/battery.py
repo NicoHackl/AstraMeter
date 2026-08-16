@@ -128,8 +128,11 @@ class BatterySimulator:
 
         # The AC-coupled Venus units that aren't an HMG-50 (VNSA-0, VNSD-0,
         # VNSE3-0) all run one law: an integer proportional integrator behind an
-        # input-conditioning gate, verified against all three firmwares (see
-        # :mod:`venus_integer_steering`). Its setpoint convention is the
+        # input-conditioning gate (see :mod:`venus_integer_steering`). The
+        # VNSD-0 and VNSE3-0 firmwares were read end to end; for the VNSA-0 only
+        # the integrator was located, so routing it here extrapolates its gate —
+        # still strictly better than the HMG-50 ramp, whose gain table its image
+        # does not contain. Its setpoint convention is the
         # opposite of the HMG-50 ramp controller's — positive = discharge,
         # negative = charge — so ``hi`` is the discharge limit and ``lo`` the
         # (negative) charge limit, and the simulator target is the setpoint
