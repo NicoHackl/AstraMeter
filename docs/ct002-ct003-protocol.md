@@ -320,8 +320,11 @@ the constants below are the literal values used.
 >   [rweijnen/marstek-firmware-archive][fw-archive] and
 >   [sphings79/marstek-firmware-archiv][fw-archive2]: the VNSD‑0 and VNSE3‑0
 >   integrator, gate and share split are the same code instruction for
->   instruction, the VNSA‑0 integrator matches them, and the law is unchanged
->   across VNSE3‑0 v144/v148/v1476/v150 and VNSD‑0 v147/v149/v1492/v150.
+>   instruction, the VNSA‑0 integrator and gate match them, and the law is
+>   unchanged across VNSE3‑0 v144/v148/v1476/v150 and VNSD‑0
+>   v147/v149/v1492/v150. (These are app images flashed above a bootloader, so
+>   they load at `0x08004800`, not `0x08000000` — code offsets are listed in
+>   `venus_integer_steering.py` as file offsets to keep that ambiguity out.)
 >
 >   Per CT response: `setpoint += (ctrl_ratio/100)·g − 5 W`, where
 >   `g = bucket − grid_standard` divided by the bucket's `*_chrg_nb` count. The

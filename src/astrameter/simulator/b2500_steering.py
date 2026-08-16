@@ -31,7 +31,14 @@ Audit status (2026-08) — **this model does not match the firmware**
 Two independent analyses of ``HMJ-2/V118`` (`tomquist/hm2500
 <https://github.com/tomquist/hm2500>`_) agree that the loop modelled below is
 not the one the device runs. Kept as-is for now because replacing it is a
-rewrite, not a patch — but nothing here should be cited as device behaviour:
+rewrite, not a patch — but nothing here should be cited as device behaviour.
+
+Addresses below are runtime addresses. Unlike the Venus and HMG-50 images
+(which are apps flashed above a bootloader and load at ``0x08004800`` /
+``0x08002800``), this one really does load at ``0x08000000``: its vector table
+admits no other base — every handler entry is an odd Thumb address in
+``0x080001b5..0x080027a5``, and the reset vector sits at file+0x1b4, right past
+the table's own end.
 
 * **The hysteresis loop is unreachable.** The ±10 W hold band and ±100 command
   step are real instructions (0x0800ca1e), but they sit in **state 4** of the

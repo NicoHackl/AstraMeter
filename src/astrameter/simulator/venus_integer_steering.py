@@ -30,24 +30,39 @@ IEEE-754 single precision with truncation toward zero, matching the device's
 
 Provenance
 ----------
-Read out of the archived Control images, which are flat Cortex-M images based
-at ``0x08000000`` (`rweijnen/marstek-firmware-archive
+Read out of the archived Control images (`rweijnen/marstek-firmware-archive
 <https://github.com/rweijnen/marstek-firmware-archive>`_ and
 `sphings79/marstek-firmware-archiv
-<https://github.com/sphings79/marstek-firmware-archiv>`_):
+<https://github.com/sphings79/marstek-firmware-archiv>`_). Code sites are given
+as **file offsets** into the ``.bin``, because the load base is not obvious and
+getting it wrong shifts every address by a constant: these are app images that
+start with their own vector table but are flashed **above the bootloader**, at
+``0x08004800``, not at ``0x08000000``. Two independent checks agree on that
+base — the reset vector (``0x08004a71`` in all three, i.e. file+0x270) and a
+scan of which base makes the most pointer literals land on the first byte of a
+NUL-terminated string (337-344 hits at ``0x08004800``, at most 28 at any other
+alignment). Runtime address = file offset + ``0x08004800``.
 
-=========  =========  ==========  ==========  ==========  =========================
-device     image      integrator  gate        split       setpoint (RAM)
-=========  =========  ==========  ==========  ==========  =========================
-VNSD-0     v150       0x0802c8c4  0x080266a0  0x080042b8  0x20000298
-VNSE3-0    v150       0x08029ecc  0x08023d2c  0x08004218  0x20000290
-VNSA-0     v149       0x0802b4a6  --          --          0x20000290
-=========  =========  ==========  ==========  ==========  =========================
+=======  =====  ==========  ========  =======  ==============
+device   image  integrator  gate      split    setpoint (RAM)
+=======  =====  ==========  ========  =======  ==============
+VNSD-0   v150   +0x2c8f4    +0x266a0  +0x42b8  0x20000298
+VNSE3-0  v150   +0x29efc    +0x23d2c  +0x4218  0x20000290
+VNSA-0   v149   +0x2b4c2    +0x2520c  +0x3ec8  0x20000290
+=======  =====  ==========  ========  =======  ==============
 
-The VNSD-0 and VNSE3-0 routines are the same code instruction for instruction
-— integrator, gate and share split alike — and the VNSA-0 integrator matches
-them too. The law is also stable across versions: it is identical in VNSE3-0
-v144/v148/v1476/v150 and VNSD-0 v147/v149/v1492/v150.
+The integrator offsets point at the branch pair that selects the law
+(``cmp out,#0`` / ``cmp g,#0xa``) rather than at a function entry, because on
+VNSA-0 the law is inlined into a larger routine instead of standing alone. The
+RAM addresses come from pointer literals, so they are absolute and unaffected
+by the base.
+
+The VNSD-0 and VNSE3-0 routines are the same code instruction for instruction —
+integrator, gate and share split alike. **VNSA-0 runs the same gate**: its
+prologue matches byte for byte, and disassembling all three side by side, the
+routine is identical for its whole length (the only differences are branch
+targets and one register allocation). The law is also stable across versions:
+it is identical in VNSE3-0 v144/v148/v1476/v150 and VNSD-0 v147/v149/v1492/v150.
 
 Two properties were verified rather than assumed, because they are what
 separates these units from a B2500 (:mod:`b2500_steering`):
@@ -61,6 +76,13 @@ separates these units from a B2500 (:mod:`b2500_steering`):
 * **The float gain table is absent.** None of the eleven HMG-50 gain constants
   appears in any Venus image, while all eleven appear in all ten archived
   HMG-50 images.
+
+Scope: this is the **run mode 10** carve-out. Ahead of everything above, the
+routine tests a mode byte and, when it reads 10, hands ``(out, g)`` to a
+different function and stores that result to an unrelated RAM word
+(``0x20000300``), leaving the steering setpoint untouched. Nothing here
+describes that path; the model covers the CT-following modes the balancer
+drives.
 
 ``out`` is a signed 16-bit field of the device status struct (``+0x18``). Its
 identity is inferred, not read: the gate's spike filter tests *"the grid jumped
