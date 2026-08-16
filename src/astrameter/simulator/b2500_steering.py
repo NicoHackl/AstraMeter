@@ -20,10 +20,45 @@ all, and reads as a dead battery rather than a lagging one.
 
 The setpoint is **incremental** (``setpoint = output + 0.9 * grid``), so the loop
 integrates the grid toward zero (fixed point ``output = load``); a proportional
-``0.9 * grid`` would droop and never null it. The constants are firmware-extracted.
+``0.9 * grid`` would droop and never null it.
 
 SOC and temperature are handled by a *separate* BMS (charge-current derating,
 cell-voltage limits) and are **not** part of this steering loop.
+
+Provenance
+----------
+Checked against ``HMJ-2/V118`` in `tomquist/hm2500
+<https://github.com/tomquist/hm2500>`_ (a flat Cortex-M image based at
+``0x08000000``). What the firmware shows directly:
+
+=====================================  ==========  =============================
+what                                   v118 addr   firmware
+=====================================  ==========  =============================
+``(cmd - 5) * 10 / 59``                0x08010a20  ``subs #5`` / ``*5`` / ``<<1``
+                                                   / ``movs #0x3b`` / ``udiv``
+±10 W hold band, ±100 ``cmd`` step     0x0800ca1e  ``add #0xa`` / ``subs #0xa``
+                                                   / ``subs #0x64`` / ``adds #0x64``
+the 0.9 approach factor                0x0800d232  ``r0*9`` then ``udiv`` by a
+                                                   register set to 10 at 0x0800cfe2
+40 W as a setpoint threshold           0x0800c69e  ``cmp #0x28`` — a real
+                                                   constant, with its own 40..50 W
+                                                   shaping band
+=====================================  ==========  =============================
+
+Two things here are **not** firmware-read, and are marked so deliberately:
+
+* **That the incremental term is the channel's own measured output.** The 0.9
+  factor was traced to a scaled measurement, but the CT grid value was not
+  followed into that expression, so ``output + 0.9 * grid`` remains the model's
+  reading of the loop rather than a decoded statement. What is not in doubt is
+  the *observable*: two reporters' logs in issue #600 show a unit answering 0 W
+  to 16-30 W commands for minutes on end, which is the behaviour this models.
+* **The ``cmd`` reset in :meth:`B2500SteeringController.regulate`.** Sending
+  ``cmd`` back to the floor under a sub-minimum setpoint is what stops the model
+  from integrating its way out of a command the hardware cannot execute. The
+  40 W threshold is real; this particular consequence of it is inferred from
+  device behaviour, not decoded. Without it the model would slowly start on any
+  command, which the field logs contradict.
 """
 
 from __future__ import annotations
