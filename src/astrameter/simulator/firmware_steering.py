@@ -21,6 +21,31 @@ configured charge/discharge limits and parked inside +/-11 W (alone on the
 bucket) or +/-15 W (sharing it). Neither this controller nor its GOLDEN vectors
 model it. See ``docs/ct002-ct003-protocol.md`` ("Model scope").
 
+Open questions from the 2026-08 firmware audit
+----------------------------------------------
+Two independent analyses of HMG-50 v156 (plus a direct check of the registers)
+disagree with this model on two points. Neither is fixed here, because both
+need the sign mapping below resolved first — this module stores the firmware's
+setpoint **negated** (see Conventions), so the firmware's direction counter
+does not map onto ``ramp`` one-for-one, and a naive edit inverts the loop:
+
+* **Reversal target.** On a rising grid the firmware stores ``-1`` when its
+  counter is positive and ``+1`` otherwise (``movs r6,#1`` at 0x08020a90,
+  ``mov.w r2,#-1`` at 0x08020bce, stored at 0x08020c20/0x08020c24; same shape at
+  the lower rail, 0x08020c00). This module stores ``-1`` or ``0``. Under the
+  negated convention the firmware's ``+1`` most likely corresponds to ``-1``
+  here, which would shift the first step from ``GAIN[0]`` to ``GAIN[-1]``
+  (50.23 -> 50.12 W) — small, but a real divergence.
+* **The spike filter is a one-shot.** The firmware latches a flag
+  (0x0801e47a/0x0801e484) so the sample after a skipped one is forced through,
+  bypassing the deadband and small-import hold as well; at most every other
+  sample can be suppressed. :meth:`_gate` below suppresses indefinitely, and
+  ``GATED``'s ``drift_keeps_skipping`` vector encodes that behaviour.
+
+The ``GOLDEN`` / ``GATED`` vectors were generated from this model, not from
+firmware traces, so they cannot arbitrate either question — they will need
+regenerating alongside whichever fix lands.
+
 Conventions
 -----------
 ``g`` is the grid value to null, **positive = importing** from the grid.

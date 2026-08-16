@@ -7,10 +7,11 @@ meter-derived setpoint feeding a per-channel hysteresis regulator — none of th
 Venus float gain table, ``sqrt`` step, or spike filter apply. It is documented in
 ``docs/ct002-ct003-protocol.md`` ("B2500-class (HMJ) DC-output steering").
 
-``cmd`` is an internal command unit, not watts: the output the device drives is
-``(cmd - 5) * 10 / 59``, so a ±100 ``cmd`` step moves the output by only ~17 W per
+``cmd`` is an internal command unit, not watts: this model maps it to output via
+``(cmd - 5) * 10 / 59``, so a ±100 ``cmd`` step moves the output by ~17 W per
 cycle. The loop holds while the measured output is within a ±10 W deadband of the
-setpoint, otherwise nudges ``cmd`` by ±100 — a bounded integrator.
+setpoint, otherwise nudges ``cmd`` by ±100 — a bounded integrator. **See the
+audit status below before treating any of that as device behaviour.**
 
 Each channel also has a **minimum output** (``MIN_CHANNEL_OUTPUT_W``): commanded
 below it the channel simply stays off, so the unit cannot deliver less than
@@ -25,44 +26,34 @@ integrates the grid toward zero (fixed point ``output = load``); a proportional
 SOC and temperature are handled by a *separate* BMS (charge-current derating,
 cell-voltage limits) and are **not** part of this steering loop.
 
-Provenance
-----------
-Checked against ``HMJ-2/V118`` in `tomquist/hm2500
-<https://github.com/tomquist/hm2500>`_ (a flat Cortex-M image based at
-``0x08000000``). What the firmware shows directly:
+Audit status (2026-08) — **this model does not match the firmware**
+------------------------------------------------------------------
+Two independent analyses of ``HMJ-2/V118`` (`tomquist/hm2500
+<https://github.com/tomquist/hm2500>`_) agree that the loop modelled below is
+not the one the device runs. Kept as-is for now because replacing it is a
+rewrite, not a patch — but nothing here should be cited as device behaviour:
 
-Decoded as complete expressions (the surrounding structure was read, not just
-the constant):
+* **The hysteresis loop is unreachable.** The ±10 W hold band and ±100 command
+  step are real instructions (0x0800ca1e), but they sit in **state 4** of the
+  channel state machine, entered only from state 3 — and no instruction in the
+  image ever writes state 3 to that struct (verified: the only store of ``3`` to
+  a ``+0x22`` field targets an unrelated struct at 0x2000ee71).
+* **The live path is a PV-curve emulation.** State 2 builds a piecewise-linear
+  panel I-V characteristic whose maximum-power point equals the requested watts,
+  then each cycle solves the load line against the channel's *measured* port
+  voltage and current. Below 16 V at the port it does not touch the DAC at all;
+  below a measured ~800 mA it commands a fixed start-up kick.
+* **The command is milliamps driving a DAC**, not watts:
+  ``dac = zero_offset[ch] + (cmd_mA - 5) * 10 / 59``, with the measured current
+  its exact inverse. So ``(cmd-5)*10/59`` is a DAC code, and the ±100 step is
+  ~5 W/s at the port rather than the ~17 W/cycle assumed here.
+* **The setpoint is not** ``output + 0.9 * grid``. The CT reading drives an
+  aggregate setpoint through a bracketed search railed at ``[pmin, p]``, which
+  is then split per channel.
 
-=====================================  ==========  =============================
-what                                   v118 addr   firmware
-=====================================  ==========  =============================
-``(cmd - 5) * 10 / 59``                0x08010a20  ``subs #5`` / ``*5`` / ``<<1``
-                                                   / ``movs #0x3b`` / ``udiv``
-±10 W hold band, ±100 ``cmd`` step     0x0800ca1e  measured power (+0x14) vs
-                                                   setpoint (+0x26) ±10, stepping
-                                                   ``cmd`` (+0x24) by ±100
-=====================================  ==========  =============================
-
-Everything else in this module is inference from observed behaviour, and none of
-it should be cited as firmware-derived:
-
-* **The incremental setpoint** ``output + 0.9 * grid``. A ``*9 / 10`` does exist
-  (0x0800d232, divisor register set to 10 at 0x0800cfe2) in a function that
-  writes the channel setpoint — but its *input* was never traced back to the CT
-  grid value, so this remains the model's reading of the loop.
-* **The channel minimum and the ``cmd`` reset it drives.** See
-  :data:`MIN_CHANNEL_OUTPUT_W`: the figure is inverter-dependent and no
-  per-inverter table was found. A ``cmp #0x28`` at 0x0800c69e was at one point
-  mistaken for the minimum-output gate; decoding the branch shows the opposite —
-  it is the lower edge of a *boost* band that rewrites a 40..49 W setpoint to
-  50..55 W, while a setpoint below 40 passes through **unchanged**. Nothing in
-  the loop refuses a small setpoint outright.
-
-What supports the model regardless is the *observable* the two reporters logged
-in issue #600: a unit answering 0 W to 16-30 W commands for minutes on end, one
-for 9.5 minutes straight. The model reproduces that; the mechanism behind it is
-not decoded.
+What survives: the device does have a per-channel floor, and a small command
+does go unexecuted — which is what the field logs in issue #600 show and what
+this model is used for. The mechanism is wrong; the observable is not.
 """
 
 from __future__ import annotations
@@ -81,13 +72,18 @@ APPROACH_NUM, APPROACH_DEN = 9, 10  # correct 90% of the residual grid per cycle
 # rather than delivering a small trickle, so the unit as a whole has a ~2x
 # minimum.
 #
-# **This is a property of the paired inverter, not of the battery**, and it is
-# selected in the app: some inverters run down to 40 W per channel (80 W for the
-# unit), others to 20 W (40 W for the unit). No universal figure exists, and no
-# per-inverter table was located in the firmware — so this is a *scenario knob*
-# standing in for one common case, not a device constant. Anything that depends
-# on the exact value (how small a command a given unit ignores) must be
-# parameterised, never assumed from this default.
+# **This is a property of the paired inverter, not of the battery.** The
+# firmware calls it ``pmin`` and prints it with its own name
+# (``"id=%d,s=%d,c=%d,i=%d,p=%d,pmin=%d,adjust_time=%d"``); it lives in a
+# CRC-checked config block written from the app, and its default is derived from
+# the inverter ``id``: **40 W** for ids in [5000,5500), **80 W** for everything
+# else (0x0800e80c-0x0800e882 in HMJ-2 V118). The per-channel floor is
+# ``pmin / 2``, so 20 W or 40 W per output depending on the inverter.
+#
+# The value below is therefore a *scenario knob* standing in for the common
+# 80 W case, not a device constant. Anything that depends on how small a command
+# a given unit ignores must be parameterised — the trap band in issue #600 is
+# device-specific for exactly this reason.
 MIN_CHANNEL_OUTPUT_W = 40
 
 
