@@ -18,6 +18,7 @@ from . import protocol
 from .b2500_steering import MIN_CHANNEL_OUTPUT_W, B2500SteeringController
 from .firmware_steering import FirmwareSteeringController
 from .venus_d_steering import VenusDSteeringController
+from .venus_e_steering import VenusESteeringController
 
 logger = logging.getLogger("astra_sim.battery")
 
@@ -140,6 +141,17 @@ class BatterySimulator:
             VenusDSteeringController() if self._is_venus_d else None
         )
 
+        # Venus E (VNSE3-0) runs that *same* integer integrator behind its own
+        # input-conditioning gate — verified against the archived VNSE3-0
+        # firmware, which contains none of the HMG-50 float gain table (see
+        # :mod:`venus_e_steering`). It shares the Venus D's setpoint convention.
+        self._is_venus_e = (
+            self.meter_dev_type.upper().startswith("VNSE") and not self._is_dc_output
+        )
+        self._venus_e_steering = (
+            VenusESteeringController() if self._is_venus_e else None
+        )
+
         # Optionally start already in motion (net output W; positive = discharge,
         # negative = charge) instead of cold-starting from rest. The firmware
         # input deadband holds a sub-deadband command only while a unit is at
@@ -153,6 +165,8 @@ class BatterySimulator:
             self._requested_target = float(initial_power)
             if self._venus_d_steering is not None:
                 self._venus_d_steering.setpoint = round(initial_power)
+            elif self._venus_e_steering is not None:
+                self._venus_e_steering.setpoint = round(initial_power)
             elif not self._b2500_channels:
                 # Ramp controller: target = -setpoint, so seed the inverse. (The
                 # B2500's command-domain regulator converges from the seeded
@@ -341,14 +355,16 @@ class BatterySimulator:
         """Derive the new AC target from the grid value read back from the CT.
 
         The grid value (sum of the per-phase power fields, positive = importing)
-        is fed to this battery's steering controller. Venus-class batteries run
+        is fed to this battery's steering controller. An HMG-50 (Venus C) runs
         :class:`FirmwareSteeringController` (a ramp law with input-conditioning
         gates), whose sign is the inverse of the simulator's (setpoint positive =
         charge), so the simulator target is the negated setpoint. A DC-coupled
         B2500 instead runs :class:`B2500SteeringController` on its DC output (see
         :meth:`_steer_b2500_output`). A Venus D (VNSD-0) runs
-        :class:`VenusDSteeringController`, an integer integrator whose setpoint is
-        already in the simulator's sign (positive = discharge), applied directly.
+        :class:`VenusDSteeringController` and a Venus E (VNSE3-0)
+        :class:`VenusESteeringController` — the same integer integrator, the
+        latter behind its own input gate — whose setpoints are already in the
+        simulator's sign (positive = discharge) and are applied directly.
 
         Cross-battery share-split: a real battery divides the grid value by the
         number of batteries reported on its phase (the ``*_chrg_nb`` count), so
@@ -387,6 +403,22 @@ class BatterySimulator:
 
         # *_chrg_nb for this battery's phase (fields 9/10/11 → indices 8/9/10).
         phase_count = field(8 + "ABC".index(self.phase))
+
+        if self._venus_e_steering is not None:
+            # Venus E: the same integer integrator, behind its own gate. The
+            # per-step branch and the gate both key off the battery's own
+            # measured output (not the grid value) — see :mod:`venus_e_steering`
+            # — and the ``*_chrg_nb`` count both splits the reading and widens
+            # the final deadband.
+            ve_setpoint = self._venus_e_steering.step(
+                grid_reading,
+                float(self.max_discharge_power),
+                -float(self.max_charge_power),
+                out=self._current_power,
+                device_count=phase_count,
+            )
+            self._apply_ct_derived_target(float(ve_setpoint))
+            return
 
         setpoint = self._steering.step(
             grid_reading,

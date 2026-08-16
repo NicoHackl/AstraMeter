@@ -10,11 +10,10 @@ per-step arithmetic, and the gate thresholds and ordering, are the exact values
 the HMG-50 firmware uses.
 
 Scope: the gain table and ramp arithmetic here are the **HMG-50** (Venus C)
-ones. The VNSE3-0 (Venus E) shares the *same input-conditioning gate* — the
-same >50 W spike filter, <20 W own-output exemption, signed deadband and
-small-import hold — but with a tighter ±10 W deadband, and it uses a different
-ramp/step law (no float gain table), so the GOLDEN ramp vectors here are
-HMG-50-specific.
+ones. The VNSE3-0 (Venus E) does *not* run this law — its firmware contains
+none of the gain-table constants, and its CT-following loop is the Venus D
+integrator behind a gate of its own (a tighter ±10 W deadband and a one-shot
+spike filter); it is modelled in :mod:`astrameter.simulator.venus_e_steering`.
 
 The **VNSD-0** (Venus D) does *not* use this law at all -- none of the float
 gain-table / ``sqrt``-step constants apply. Its CT-following loop is an integer

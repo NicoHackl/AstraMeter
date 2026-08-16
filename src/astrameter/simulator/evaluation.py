@@ -804,6 +804,9 @@ def _compute_metrics(
 # ---------------------------------------------------------------------------
 
 _VENUS = BatterySpec()  # HMG-50 (V2-class), 1 s poll
+# Venus E (VNSE3-0), the fast-polling V3-class unit. It runs the same integer
+# integrator as the Venus D behind its own input gate (see venus_e_steering) —
+# no gain-scheduled ramp, so it slews far harder than an HMG-50 on a big step.
 _VENUS_V3 = BatterySpec(device_type="VNSE3-0", poll_interval=0.45)
 _VENUS_V2_SLOW = BatterySpec(poll_interval=3.1)
 # Venus D (VNSD-0): AC-coupled like the rest, but runs the integer
