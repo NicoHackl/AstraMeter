@@ -31,34 +31,38 @@ Checked against ``HMJ-2/V118`` in `tomquist/hm2500
 <https://github.com/tomquist/hm2500>`_ (a flat Cortex-M image based at
 ``0x08000000``). What the firmware shows directly:
 
+Decoded as complete expressions (the surrounding structure was read, not just
+the constant):
+
 =====================================  ==========  =============================
 what                                   v118 addr   firmware
 =====================================  ==========  =============================
 ``(cmd - 5) * 10 / 59``                0x08010a20  ``subs #5`` / ``*5`` / ``<<1``
                                                    / ``movs #0x3b`` / ``udiv``
-±10 W hold band, ±100 ``cmd`` step     0x0800ca1e  ``add #0xa`` / ``subs #0xa``
-                                                   / ``subs #0x64`` / ``adds #0x64``
-the 0.9 approach factor                0x0800d232  ``r0*9`` then ``udiv`` by a
-                                                   register set to 10 at 0x0800cfe2
-40 W as a setpoint threshold           0x0800c69e  ``cmp #0x28`` — a real
-                                                   constant, with its own 40..50 W
-                                                   shaping band
+±10 W hold band, ±100 ``cmd`` step     0x0800ca1e  measured power (+0x14) vs
+                                                   setpoint (+0x26) ±10, stepping
+                                                   ``cmd`` (+0x24) by ±100
 =====================================  ==========  =============================
 
-Two things here are **not** firmware-read, and are marked so deliberately:
+Everything else in this module is inference from observed behaviour, and none of
+it should be cited as firmware-derived:
 
-* **That the incremental term is the channel's own measured output.** The 0.9
-  factor was traced to a scaled measurement, but the CT grid value was not
-  followed into that expression, so ``output + 0.9 * grid`` remains the model's
-  reading of the loop rather than a decoded statement. What is not in doubt is
-  the *observable*: two reporters' logs in issue #600 show a unit answering 0 W
-  to 16-30 W commands for minutes on end, which is the behaviour this models.
-* **The ``cmd`` reset in :meth:`B2500SteeringController.regulate`.** Sending
-  ``cmd`` back to the floor under a sub-minimum setpoint is what stops the model
-  from integrating its way out of a command the hardware cannot execute. The
-  40 W threshold is real; this particular consequence of it is inferred from
-  device behaviour, not decoded. Without it the model would slowly start on any
-  command, which the field logs contradict.
+* **The incremental setpoint** ``output + 0.9 * grid``. A ``*9 / 10`` does exist
+  (0x0800d232, divisor register set to 10 at 0x0800cfe2) in a function that
+  writes the channel setpoint — but its *input* was never traced back to the CT
+  grid value, so this remains the model's reading of the loop.
+* **The channel minimum and the ``cmd`` reset it drives.** See
+  :data:`MIN_CHANNEL_OUTPUT_W`: the figure is inverter-dependent and no
+  per-inverter table was found. A ``cmp #0x28`` at 0x0800c69e was at one point
+  mistaken for the minimum-output gate; decoding the branch shows the opposite —
+  it is the lower edge of a *boost* band that rewrites a 40..49 W setpoint to
+  50..55 W, while a setpoint below 40 passes through **unchanged**. Nothing in
+  the loop refuses a small setpoint outright.
+
+What supports the model regardless is the *observable* the two reporters logged
+in issue #600: a unit answering 0 W to 16-30 W commands for minutes on end, one
+for 9.5 minutes straight. The model reproduces that; the mechanism behind it is
+not decoded.
 """
 
 from __future__ import annotations
@@ -75,8 +79,15 @@ APPROACH_NUM, APPROACH_DEN = 9, 10  # correct 90% of the residual grid per cycle
 # Minimum output one DC channel can physically deliver (W). The channel is a
 # hard on/off below this: commanded under it, the output stays de-energized
 # rather than delivering a small trickle, so the unit as a whole has a ~2x
-# minimum. The exact figure depends on the inverter model the battery is
-# paired with; this is the common default.
+# minimum.
+#
+# **This is a property of the paired inverter, not of the battery**, and it is
+# selected in the app: some inverters run down to 40 W per channel (80 W for the
+# unit), others to 20 W (40 W for the unit). No universal figure exists, and no
+# per-inverter table was located in the firmware — so this is a *scenario knob*
+# standing in for one common case, not a device constant. Anything that depends
+# on the exact value (how small a command a given unit ignores) must be
+# parameterised, never assumed from this default.
 MIN_CHANNEL_OUTPUT_W = 40
 
 
