@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "deny": [
+      "mcp__github__add_issue_comment",
+      "mcp__github__issue_write"
+    ]
+  }
+}
