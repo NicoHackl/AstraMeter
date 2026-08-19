@@ -2,6 +2,8 @@
 
 ## Next
 
+- **Fixed** the ESPHome config generator producing a single-phase config for a three-phase **HomeWizard** meter, so all three phases had to be wired up by hand ([#620](https://github.com/tomquist/astrameter/issues/620)).
+
 - **Fixed** B2500 batteries sitting at 0 W under active control while the whole house load was imported: the command they were sent could never exceed what the battery needs to start, and a battery that never starts was never sent more ([#600](https://github.com/tomquist/astrameter/issues/600), [#614](https://github.com/tomquist/astrameter/pull/614)).
 
 - **Added** Refoss / Meross energy monitors (EM01P, EM06P, EM16P) as a power source (`[REFOSS]` or `[MEROSS]`) ([#598](https://github.com/tomquist/astrameter/pull/598)).

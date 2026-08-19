@@ -37,6 +37,32 @@ Running the Python add-on instead? See [powermeters.md](powermeters.md).
 > `json`, and lambda APIs differ slightly between releases — check the linked
 > component docs for the exact syntax on your version.
 
+### Adapting a generic-HTTP lambda
+
+Two things trip up hand-edited lambdas:
+
+**The HTTP status lives on `response`.** `on_response` hands the lambda a
+`response` object and — with `capture_response: true` — a `body` string. There is
+no bare `status_code` variable, so a check written as `if (status_code == 200)`
+fails the build with `'status_code' was not declared in this scope`. Write it
+against `response` instead:
+
+```yaml
+              - lambda: |-
+                  if (response->status_code != 200) return;
+                  json::parse_json(body, [](JsonObject root) -> bool {
+                    id(grid_l1).publish_state(root["active_power_w"]);
+                    return true;
+                  });
+```
+
+The guard is optional — `json::parse_json` fails on an error page anyway, which
+is why the examples below leave it out.
+
+**`root.containsKey("x")` is deprecated** in the ArduinoJson version ESPHome
+ships (it still compiles, with a warning). To publish a field only when the
+meter reports it, test the value instead: `if (root["active_power_l2_w"].is<float>()) { … }`.
+
 ## Support legend
 
 | Tier | Meaning |
@@ -812,6 +838,22 @@ ct002:
   id: ct002_main
   power_sensor_l1: grid_l1
 ```
+
+For three-phase, add `grid_l2` / `grid_l3` template sensors and publish the
+per-phase fields from the same poll:
+
+```yaml
+              - lambda: |-
+                  json::parse_json(body, [](JsonObject root) -> bool {
+                    id(grid_l1).publish_state(root["active_power_l1_w"]);
+                    id(grid_l2).publish_state(root["active_power_l2_w"]);
+                    id(grid_l3).publish_state(root["active_power_l3_w"]);
+                    return true;
+                  });
+```
+
+…and set `power_sensor_l2` / `power_sensor_l3` on `ct002:`. A single-phase meter
+only reports `active_power_l1_w`, so keep the single-phase config above for one.
 
 **Native alternative:** the HomeWizard dongle just reads your smart meter's P1
 telegram. With your own P1-reader hardware you can skip the dongle and use

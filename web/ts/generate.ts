@@ -353,6 +353,14 @@ function esphomeSensor(state: State) {
         ? esp.lambda1(f)
         : esp.lambda1;
     const jsonRoot = esp.jsonRoot || "JsonObject root";
+    // Lambda bodies are written in schema.ts as plain newline-separated
+    // statements; indent every line so a multi-statement body lines up inside
+    // the block scalar instead of stepping in and out.
+    const lambdaIndent = IND.repeat(11);
+    const lambdaLines = String(lambdaBody)
+      .split("\n")
+      .map((line) => lambdaIndent + line.trim())
+      .join("\n");
     const headerLines =
       esp.headersField && !isBlank(f[esp.headersField])
         ? `\n${IND}${IND}${IND}${IND}${IND}headers:\n` +
@@ -374,8 +382,8 @@ function esphomeSensor(state: State) {
       `${IND}${IND}${IND}${IND}${IND}capture_response: true\n${IND}${IND}${IND}${IND}${IND}max_response_buffer_size: ${RX_BUFFER}\n${IND}${IND}${IND}${IND}${IND}on_response:\n${IND}${IND}${IND}${IND}${IND}${IND}then:\n` +
       `${IND}${IND}${IND}${IND}${IND}${IND}${IND}- lambda: |-\n` +
       `${IND}${IND}${IND}${IND}${IND}${IND}${IND}${IND}${IND}json::parse_json(body, [](${jsonRoot}) -> bool {\n` +
-      `${IND}${IND}${IND}${IND}${IND}${IND}${IND}${IND}${IND}${IND}${IND}${lambdaBody}\n` +
-      `${IND}${IND}${IND}${IND}${IND}${IND}${IND}${IND}${IND}${IND}${IND}return true;\n` +
+      `${lambdaLines}\n` +
+      `${lambdaIndent}return true;\n` +
       `${IND}${IND}${IND}${IND}${IND}${IND}${IND}${IND}${IND}});`;
     topBlocks.push(interval);
     if (use3) warnings.push("Three-phase HTTP support is illustrative — confirm the JSON field names for your meter.");

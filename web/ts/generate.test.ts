@@ -411,6 +411,38 @@ const eySml = generateEsphome({
 has(eySml, "platform: sml", "esp/sml: sml sensor");
 has(eySml, 'obis_code: "1-0:16.7.0"', "esp/sml: default obis");
 
+// ── ESPHome: HomeWizard single- vs three-phase (v1 HTTP API) ──────────────────
+const eyHw1 = generateEsphome({
+  target: "esphome",
+  esphome: {},
+  meters: [{ type: "homewizard", phases: 1, fields: { IP: "192.168.1.110" }, tuning: {} }],
+  ct: { fields: {} },
+});
+has(eyHw1, "url: http://192.168.1.110/api/v1/data", "esp/homewizard: v1 data endpoint");
+has(eyHw1, 'root["active_power_w"]', "esp/homewizard: single-phase reads the total");
+lacks(eyHw1, "power_sensor_l2", "esp/homewizard: single-phase wires one sensor only");
+
+// Three phases must read the per-phase fields — otherwise every phase gets the
+// same total and users hand-write the lambda themselves (issue #620).
+const eyHw3 = generateEsphome({
+  target: "esphome",
+  esphome: {},
+  meters: [{ type: "homewizard", phases: 3, fields: { IP: "192.168.1.110" }, tuning: {} }],
+  ct: { fields: {} },
+});
+has(eyHw3, 'id(grid_l1).publish_state(root["active_power_l1_w"]);', "esp/homewizard: L1 per-phase field");
+has(eyHw3, 'id(grid_l2).publish_state(root["active_power_l2_w"]);', "esp/homewizard: L2 per-phase field");
+has(eyHw3, 'id(grid_l3).publish_state(root["active_power_l3_w"]);', "esp/homewizard: L3 per-phase field");
+has(eyHw3, "power_sensor_l3: grid_l3", "esp/homewizard: 3-phase wiring");
+lacks(eyHw3, 'root["active_power_w"]', "esp/homewizard: three-phase does not fall back to the total");
+// Every statement of a multi-line lambda body must sit at the same indent —
+// the schema writes them as bare newline-separated statements.
+const hwLambda = eyHw3.split("json::parse_json(body,")[1].split("});")[0].split("\n").slice(1).filter((l) => l.trim());
+ok(
+  new Set(hwLambda.map((l) => l.length - l.trimStart().length)).size === 1,
+  "esp/homewizard: three-phase lambda statements share one indent",
+);
+
 // ── ESPHome: unsupported meter warns ──────────────────────────────────────────
 const eyEnvoy = generateEsphome({
   target: "esphome",

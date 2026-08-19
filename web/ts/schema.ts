@@ -336,7 +336,7 @@ export const POWERMETERS: Powermeter[] = [
       url3: (f) => `http://${f.IP || "192.168.1.100"}/rpc/EM.GetStatus?id=0`,
       lambda1: 'id(grid_l1).publish_state(root["apower"]);',
       lambda3:
-        'id(grid_l1).publish_state(root["a_act_power"]);\n                    id(grid_l2).publish_state(root["b_act_power"]);\n                    id(grid_l3).publish_state(root["c_act_power"]);',
+        'id(grid_l1).publish_state(root["a_act_power"]);\nid(grid_l2).publish_state(root["b_act_power"]);\nid(grid_l3).publish_state(root["c_act_power"]);',
     },
   },
   {
@@ -382,7 +382,7 @@ export const POWERMETERS: Powermeter[] = [
       note: "Reads OBIS 1.7.0 (import) minus 2.7.0 (export). Replace USER/PASS in the URL.",
       url1: (f) => `http://${f.IP || "192.168.1.102"}/getLastData?user=${f.USER || "USER"}&password=${f.PASS || "PASS"}`,
       lambda1:
-        'float in_w = root["1.7.0"];\n                    float out_w = root["2.7.0"];\n                    id(grid_l1).publish_state(in_w - out_w);',
+        'float in_w = root["1.7.0"];\nfloat out_w = root["2.7.0"];\nid(grid_l1).publish_state(in_w - out_w);',
     },
   },
   {
@@ -402,7 +402,7 @@ export const POWERMETERS: Powermeter[] = [
       note: "Reads Leistung170 (import) minus Leistung270 (export).",
       url1: (f) => `http://${f.IP || "192.168.1.103"}/pages/getinformation.php?heute&meterindex=${f.METER_INDEX || "0"}`,
       lambda1:
-        'float in_w = root["Leistung170"];\n                    float out_w = root["Leistung270"];\n                    id(grid_l1).publish_state(in_w - out_w);',
+        'float in_w = root["Leistung170"];\nfloat out_w = root["Leistung270"];\nid(grid_l1).publish_state(in_w - out_w);',
     },
   },
   {
@@ -649,9 +649,12 @@ export const POWERMETERS: Powermeter[] = [
     esphome: {
       kind: "http",
       tier: "alternate",
-      note: "The v2 WebSocket API has no ESP port. Enable Local API and poll the v1 HTTP API instead; grid power is active_power_w.",
+      note: "The v2 WebSocket API has no ESP port. Enable Local API and poll the v1 HTTP API instead; grid power is active_power_w (active_power_l1_w..l3_w per phase).",
       url1: (f) => `http://${f.IP || "192.168.1.110"}/api/v1/data`,
+      url3: (f) => `http://${f.IP || "192.168.1.110"}/api/v1/data`,
       lambda1: 'id(grid_l1).publish_state(root["active_power_w"]);',
+      lambda3:
+        'id(grid_l1).publish_state(root["active_power_l1_w"]);\nid(grid_l2).publish_state(root["active_power_l2_w"]);\nid(grid_l3).publish_state(root["active_power_l3_w"]);',
     },
   },
   {
@@ -730,7 +733,7 @@ export const POWERMETERS: Powermeter[] = [
       url3: (f) => `http://${f.IP || "192.168.1.130"}/solar_api/v1/GetMeterRealtimeData.cgi?Scope=Device&DeviceId=${f.DEVICE_ID || "0"}`,
       lambda1: 'id(grid_l1).publish_state(root["Body"]["Data"]["PowerReal_P_Sum"]);',
       lambda3:
-        'id(grid_l1).publish_state(root["Body"]["Data"]["PowerReal_P_Phase_1"]);\n                    id(grid_l2).publish_state(root["Body"]["Data"]["PowerReal_P_Phase_2"]);\n                    id(grid_l3).publish_state(root["Body"]["Data"]["PowerReal_P_Phase_3"]);',
+        'id(grid_l1).publish_state(root["Body"]["Data"]["PowerReal_P_Phase_1"]);\nid(grid_l2).publish_state(root["Body"]["Data"]["PowerReal_P_Phase_2"]);\nid(grid_l3).publish_state(root["Body"]["Data"]["PowerReal_P_Phase_3"]);',
     },
   },
   {
@@ -760,8 +763,8 @@ export const POWERMETERS: Powermeter[] = [
         const [a, b, c] = refossChannelIds(f.CHANNELS, [1, 2, 3]);
         return (
           `id(grid_l1).publish_state(root["status"][${a - 1}]["power"]);\n` +
-          `                    id(grid_l2).publish_state(root["status"][${b - 1}]["power"]);\n` +
-          `                    id(grid_l3).publish_state(root["status"][${c - 1}]["power"]);`
+          `id(grid_l2).publish_state(root["status"][${b - 1}]["power"]);\n` +
+          `id(grid_l3).publish_state(root["status"][${c - 1}]["power"]);`
         );
       },
     },
