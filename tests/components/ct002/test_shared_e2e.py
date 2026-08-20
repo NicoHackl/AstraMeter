@@ -55,17 +55,24 @@ UDP_PORT = 12345
 CONTROL_PORT = 12346
 DEDUPE_WINDOW_S = 10  # must match dedupe_window in test.e2e.host.yaml
 
-# The CT002 request both backends send. ct_mac is blank on the emulator side
-# (mirror mode), so field[3] is echoed back and its exact value is irrelevant.
-_REQUEST_CT_MAC = "112233445566"
+# Both backends advertise this configured CT identity. Normal polls address it
+# directly; the discovery scenario addresses the all-zero wildcard and must
+# still receive a reply carrying this real identity.
+_CONFIGURED_CT_MAC = "112233445566"
+_REQUEST_CT_MAC = _CONFIGURED_CT_MAC
 
 
 def _have_esphome() -> bool:
     return shutil.which("esphome") is not None
 
 
-def _build_poll(mac: str, phase: str, power: int) -> bytes:
-    return build_payload(["HMG-50", mac, "HME-4", _REQUEST_CT_MAC, phase, str(power)])
+def _build_poll(
+    mac: str,
+    phase: str,
+    power: int,
+    request_ct_mac: str = _REQUEST_CT_MAC,
+) -> bytes:
+    return build_payload(["HMG-50", mac, "HME-4", request_ct_mac, phase, str(power)])
 
 
 # ── Backend: in-process Python CT002 ───────────────────────────────────────
@@ -102,7 +109,7 @@ class PythonBackend:
         self._meter_unavailable = False
         self.ct002 = CT002(
             udp_port=UDP_PORT,  # unused: we never start() a real socket
-            ct_mac="",  # mirror mode, like the e2e YAML
+            ct_mac=_CONFIGURED_CT_MAC,
             active_control=True,
             fair_distribution=True,
             clock=self._clock,
@@ -172,11 +179,19 @@ class PythonBackend:
             if c.timestamp > 0
         }
 
-    def poll(self, mac: str, phase: str, power: int):
+    def poll(
+        self,
+        mac: str,
+        phase: str,
+        power: int,
+        request_ct_mac: str = _REQUEST_CT_MAC,
+    ):
         transport = _FakeTransport()
         addr = ("127.0.0.1", 50000)  # synthetic; consumer_id keys off meter_mac
         self._loop.run_until_complete(
-            self.ct002._handle_request(_build_poll(mac, phase, power), addr, transport)
+            self.ct002._handle_request(
+                _build_poll(mac, phase, power, request_ct_mac), addr, transport
+            )
         )
         if transport.sent is None:
             return None  # deduped / dropped — mirrors a UDP timeout
@@ -280,11 +295,21 @@ class EsphomeBackend:
         # unavailable (SensorBackedPowermeter returns {} -> handler uses [0,0,0]).
         self._cmd("sensor_stale")
 
-    def poll(self, mac: str, phase: str, power: int, timeout: float = 1.5):
+    def poll(
+        self,
+        mac: str,
+        phase: str,
+        power: int,
+        request_ct_mac: str = _REQUEST_CT_MAC,
+        timeout: float = 1.5,
+    ):
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.settimeout(timeout)
         try:
-            s.sendto(_build_poll(mac, phase, power), ("127.0.0.1", UDP_PORT))
+            s.sendto(
+                _build_poll(mac, phase, power, request_ct_mac),
+                ("127.0.0.1", UDP_PORT),
+            )
             data = s.recvfrom(512)[0]
         except TimeoutError:
             return None
@@ -376,6 +401,23 @@ def backend(request):
 
 
 # ── Shared scenarios (run against both backends) ───────────────────────────
+
+
+@pytest.mark.timeout(30, func_only=True)
+def test_configured_ct_answers_discovery_wildcard_with_its_own_mac(backend) -> None:
+    """A battery cannot list/select a CT until the wildcard discovery probe
+    receives the CT's non-zero configured identity."""
+    backend.set_clock(900)
+    backend.set_grid(0)
+    response = backend.poll(
+        "CCC837B413F5",
+        "0",
+        0,
+        request_ct_mac="000000000000",
+    )
+    assert response is not None, f"[{backend.name}] discovery probe got no response"
+    assert response[0] == "HME-4"
+    assert response[1].lower() == _CONFIGURED_CT_MAC
 
 
 @pytest.mark.timeout(30, func_only=True)

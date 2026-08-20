@@ -20,6 +20,22 @@ data that CT002 does not (see "CT003 energy fields" below).
 - **Port:** `12345`
 - **Direction:** Storage system (consumer) sends a request to the CT. CT replies with measurements.
 
+### Venus E Mini V295 discovery on port 2220
+
+A captured Venus E Mini running firmware V295 identified itself as `HHM-2` and
+sent the native framed CT request below to UDP port 2220 while looking for a
+Shelly Pro 3EM, rather than sending Shelly JSON-RPC:
+
+```text
+<SOH><STX>45|HHM-2|ccc837b413f5||000000000000|0|0|<ETX>77
+```
+
+The empty CT type, all-zero CT MAC and phase `0` make this a discovery/
+inspection request. AstraMeter's Python `shellypro3em_new` listener recognizes
+the CT framing on the shared port, answers as `HME-4` with a stable virtual CT
+MAC, and continues through the normal CT002 handler after selection. Ordinary
+Shelly JSON traffic on port 2220 remains unchanged.
+
 ## Frame Format
 
 All messages (request and response) are ASCII payloads wrapped with control bytes and a checksum.

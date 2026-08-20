@@ -11,6 +11,8 @@ from typing import Any
 
 from astrameter.config import ClientFilter
 from astrameter.config.logger import debug_traceback, logger
+from astrameter.ct002 import CT002
+from astrameter.ct002.ct002 import CT002Snapshot
 from astrameter.powermeter import Powermeter
 from astrameter.request_dedupe import RequestDeduplicator
 
@@ -72,6 +74,7 @@ class Shelly:
         device_id,
         dedupe_time_window: float = 0.0,
         device_type: str = "",
+        ct_fallback: CT002 | None = None,
     ):
         self._udp_port = udp_port
         self._device_id = device_id
@@ -100,6 +103,13 @@ class Shelly:
         self._dedup: RequestDeduplicator[str] = RequestDeduplicator(
             self._dedupe_time_window
         )
+        # Venus E Mini firmware V295 identifies itself as HHM-2 and sends a
+        # CT002-framed discovery/poll on the Shelly Pro 3EM port (2220), rather
+        # than the JSON-RPC poll older Shelly-compatible firmware sends.  The
+        # optional delegate lets that one UDP socket answer both formats.  It
+        # is intentionally supplied only for the 2220 listener in main.py.
+        self._ct_fallback = ct_fallback
+        self._ct_fallback_clients: set[str] = set()
         self.event_listener: Callable[[str, str, dict[str, Any]], None] | None = None
         # Read-only status surface (see status_snapshot).
         self._started_at: float = 0.0
@@ -239,6 +249,22 @@ class Shelly:
             logger.exception("Error handling Shelly request from %s", addr)
 
     async def _handle_request(self, transport, data, addr):
+        # HHM-2 (Venus E Mini V295) uses the native Marstek CT frame even
+        # while probing the port assigned to Shelly Pro 3EM.  Dispatch before
+        # Shelly liveness/dedupe bookkeeping: the CT002 delegate owns both for
+        # this client, while ordinary JSON-RPC clients keep the original path.
+        if self._ct_fallback is not None and data.startswith(b"\x01\x02"):
+            if addr[0] not in self._ct_fallback_clients:
+                self._ct_fallback_clients.add(addr[0])
+                logger.info(
+                    "CT-framed battery detected on Shelly UDP port %s: %s; "
+                    "using CT002 compatibility mode",
+                    self._udp_port,
+                    addr[0],
+                )
+            await self._ct_fallback._handle_request(data, addr, transport)
+            return
+
         poll_interval = self._track_battery_seen(addr)
 
         if not self._dedup.should_process(addr[0]):
@@ -354,7 +380,12 @@ class Shelly:
                 finally:
                     self._inflight_batteries.discard(addr[0])
         except json.JSONDecodeError:
-            logger.error("Error: Invalid JSON")
+            logger.warning(
+                "Ignoring invalid Shelly JSON from %s:%s",
+                addr[0],
+                addr[1],
+                exc_info=False,
+            )
         except Exception:
             logger.exception("Error processing message")
 
@@ -369,6 +400,11 @@ class Shelly:
                 self._dedup.purge_older_than(
                     max(BATTERY_INACTIVE_TIMEOUT_SECONDS, self._dedupe_time_window)
                 )
+                if self._ct_fallback is not None:
+                    # The delegate shares this instance's UDP socket rather
+                    # than starting its own lifecycle task, so run its normal
+                    # adaptive consumer cleanup from ours.
+                    self._ct_fallback._cleanup_consumers()
         except asyncio.CancelledError:
             pass
 
@@ -388,12 +424,63 @@ class Shelly:
         self._started_at = time.time()
         self._running = True
         logger.info(f"Shelly emulator listening on UDP port {self._udp_port}...")
+        if self._ct_fallback is not None:
+            logger.info(
+                "CT002 compatibility mode enabled on UDP port %s for "
+                "CT-framed Shelly discovery",
+                self._udp_port,
+            )
 
     @property
     def udp_port(self) -> int:
         return self._udp_port
 
-    def status_snapshot(self) -> ShellySnapshot:
+    @property
+    def ct_fallback(self) -> CT002 | None:
+        """The CT handler multiplexed onto this Shelly socket, if any."""
+        return self._ct_fallback
+
+    @property
+    def _rev(self) -> int:
+        """Expose delegated mutations to the status registry's ETag."""
+        return self._ct_fallback._rev if self._ct_fallback is not None else 0
+
+    def _ct_control(self) -> CT002:
+        if self._ct_fallback is None:
+            raise ValueError("This Shelly listener has no CT compatibility device")
+        return self._ct_fallback
+
+    # Once a CT-framed battery is shown as a CT device on the dashboard, its
+    # controls must reach the delegate that owns that state. Keep these small
+    # explicit proxies rather than making every unknown Shelly attribute fall
+    # through via __getattr__.
+    def set_consumer_manual_target(self, consumer_id: str, target: float) -> None:
+        self._ct_control().set_consumer_manual_target(consumer_id, target)
+
+    def set_consumer_auto_target(self, consumer_id: str, auto: bool) -> None:
+        self._ct_control().set_consumer_auto_target(consumer_id, auto)
+
+    def set_consumer_active(self, consumer_id: str, active: bool) -> None:
+        self._ct_control().set_consumer_active(consumer_id, active)
+
+    def set_consumer_distribution_weight(self, consumer_id: str, weight: float) -> None:
+        self._ct_control().set_consumer_distribution_weight(consumer_id, weight)
+
+    def set_consumer_efficiency_window_weight(
+        self, consumer_id: str, weight: float
+    ) -> None:
+        self._ct_control().set_consumer_efficiency_window_weight(consumer_id, weight)
+
+    def set_consumer_min_dc_output(self, consumer_id: str, value: float) -> None:
+        self._ct_control().set_consumer_min_dc_output(consumer_id, value)
+
+    def set_active_control(self, active: bool) -> None:
+        self._ct_control().set_active_control(active)
+
+    def force_efficiency_rotation(self) -> None:
+        self._ct_control().force_efficiency_rotation()
+
+    def status_snapshot(self) -> ShellySnapshot | CT002Snapshot:
         """Immutable view of the emulator for the status API.
 
         MUST stay a plain ``def``: the UDP handlers and the HTTP handlers
@@ -401,6 +488,23 @@ class Shelly:
         every in-flight datagram.  Adding an ``await`` here silently yields
         torn snapshots that mix two polls.
         """
+        if (
+            self._ct_fallback is not None
+            and self._ct_fallback.reporting_consumer_count() > 0
+        ):
+            # The wire schema already supports either device shape. Once this
+            # listener has actually received a CT-framed battery, show its CT
+            # consumers/targets instead of an empty Shelly card. The delegate
+            # does not own the socket lifecycle, so borrow those three values
+            # from this listening instance.
+            return dataclasses.replace(
+                self._ct_fallback.status_snapshot(),
+                device_id=self._device_id,
+                udp_port=self._udp_port,
+                running=self._running,
+                started_at=self._started_at or None,
+            )
+
         now = time.time()
         return ShellySnapshot(
             device_id=self._device_id,

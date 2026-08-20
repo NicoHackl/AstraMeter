@@ -1187,7 +1187,11 @@ class CT002:
         req_ct_mac = request_fields[3]
         if not req_ct_mac:
             return False
-        return req_ct_mac.lower() == self.ct_mac.lower()
+        # A battery that is discovering meters does not know the CT MAC yet
+        # and addresses its probe to the all-zero wildcard. A configured CT
+        # must answer that probe with its own MAC so the battery/app can list
+        # it; once selected, subsequent polls address that MAC directly.
+        return req_ct_mac == "000000000000" or req_ct_mac.lower() == self.ct_mac.lower()
 
     async def _safe_handle_request(self, data, addr, transport):
         try:

@@ -69,6 +69,11 @@ Fixes to `src/astrameter/powermeter/wrappers/{transform,throttling}.py` have **n
 
 The `power_sensor_lX` unit handling (unit→W auto-conversion, non-power-unit rejection, and the kW-suspicion warning — issue #572) is **ESPHome-only**: it lives in `ct002/__init__.py` (`FINAL_VALIDATE_SCHEMA` + `set_power_unit_scale` codegen) and the sensor-callback cache in `ct002.cpp`, with no counterpart in `src/astrameter/ct002/` — the Python stack receives watts from its powermeter layer, where the equivalent unit handling is implemented per-source (currently `powermeter/homeassistant.py`, which reads the entity's `unit_of_measurement` attribute). Keep the two accepted-unit tables (`POWER_UNIT_SCALES` in `ct002/__init__.py`, `_POWER_UNIT_SCALE` in `powermeter/homeassistant.py`) in sync.
 
+The Shelly socket multiplexer in `src/astrameter/shelly/shelly.py` is
+**Python-only**: ESPHome exposes the native CT socket and does not emulate a
+Shelly listener. Any CT protocol behavior reached through that adapter still
+belongs in both CT002 implementations under the parity rule above.
+
 The host-gcc gtest suite (`uv run pytest tests/components/ct002/test_host_protocol.py`) is the C++-side guard against translation drift. It builds via CMake with FetchContent-fetched googletest, so all you need locally is `cmake` and a C++17 compiler. Add a gtest case for any new C++ behavior that doesn't map 1:1 to a Python file.
 
 Two host e2e modules drive the compiled binary over real UDP:

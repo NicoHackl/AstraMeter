@@ -36,7 +36,8 @@ It does this by emulating one or more of these devices:
   devices; it coordinates a shared target across the fleet.
 - **Shelly Pro 3EM** — uses port 1010 (B2500 firmware up to v224) and port 2220
   (B2500 firmware v226+); target a specific port with `shellypro3em_old` (1010) or
-  `shellypro3em_new` (2220).
+  `shellypro3em_new` (2220). The port-2220 listener also recognizes the native
+  CT discovery frames sent by the Venus E Mini on firmware V295.
 - **Shelly EM gen3**
 - **Shelly Pro EM50**
 

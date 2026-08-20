@@ -51,6 +51,10 @@ than reporting the image as untested.
 
 `esphome/components/ct002/` is a C++ mirror of the Python CT002 stack. Any change to shared behavior must land on **both** sides in the same change. See `CONTRIBUTING.md` for the file mapping and what has no C++ counterpart. Verify with `uv run pytest tests/components/ct002/`.
 
+The port-sharing adapter in `src/astrameter/shelly/shelly.py` is Python-only
+because ESPHome does not emulate Shelly sockets. The CT wire behavior it
+delegates to remains shared and must still be mirrored in C++.
+
 Both halves of that suite need something the sandbox does not have by default,
 and both are obtainable — don't skip them:
 

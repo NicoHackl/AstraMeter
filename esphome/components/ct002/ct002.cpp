@@ -522,6 +522,10 @@ bool CT002Component::validate_ct_mac_(const std::vector<std::string> &fields) co
   if (fields.size() < 4) return false;
   std::string req(fields[3]);
   for (auto &c : req) c = static_cast<char>(std::tolower(c));
+  // Discovery polls address the all-zero wildcard because the battery does
+  // not know the CT MAC yet. Answer with the configured MAC so the app can
+  // list this CT; normal polls after selection address that MAC directly.
+  if (req == "000000000000") return true;
   std::string cfg(this->ct_mac_);
   for (auto &c : cfg) c = static_cast<char>(std::tolower(c));
   return req == cfg;

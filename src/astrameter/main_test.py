@@ -1,9 +1,10 @@
 import argparse
 from ipaddress import IPv4Network
 
+import astrameter.main as main_module
 from astrameter.config.config_loader import ClientFilter, new_config_parser
 from astrameter.config.ini_config import IniAppConfig
-from astrameter.main import _resolve_device_config, read_ct_powermeter
+from astrameter.main import _resolve_device_config, _virtual_ct_mac, read_ct_powermeter
 from astrameter.powermeter import Powermeter
 
 
@@ -103,6 +104,54 @@ def test_resolve_device_config_shellypro3em_new_gets_shelly_id():
     device_types, device_ids = _resolve("shellypro3em_new")
     assert device_types == ["shellypro3em_new"]
     assert device_ids == ["shellypro3em-ec4609c439c1"]
+
+
+def test_shelly_id_suffix_is_reused_as_virtual_ct_mac():
+    assert _virtual_ct_mac("shellypro3em-ec4609c439c1") == "ec4609c439c1"
+
+
+def test_custom_shelly_id_gets_stable_locally_administered_ct_mac():
+    first = _virtual_ct_mac("my-venus-meter")
+    assert first == _virtual_ct_mac("my-venus-meter")
+    assert len(first) == 12
+    assert int(first[:2], 16) & 0x03 == 0x02
+
+
+async def test_run_device_wires_ct_compatibility_into_port_2220(monkeypatch):
+    captured = {}
+
+    class FakeShelly:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+            self.ct_fallback = kwargs["ct_fallback"]
+
+        async def start(self):
+            pass
+
+        async def wait(self):
+            pass
+
+        async def stop(self):
+            pass
+
+    monkeypatch.setattr(main_module, "Shelly", FakeShelly)
+    config = IniAppConfig(new_config_parser())
+    pm = _StubPowermeter([-963.0])
+
+    await main_module.run_device(
+        "shellypro3em_new",
+        config,
+        config.general(),
+        [(pm, _LOCAL, False)],
+        device_id="shellypro3em-ec4609c439c1",
+    )
+
+    fallback = captured["ct_fallback"]
+    assert captured["udp_port"] == 2220
+    assert fallback.udp_port == 2220
+    assert fallback.ct_type == "HME-4"
+    assert fallback.ct_mac == "ec4609c439c1"
+    assert await fallback.before_send(("127.0.0.1", 22222)) == [-963.0, 0, 0]
 
 
 def test_resolve_device_config_shellypro3em_old_gets_shelly_id():
