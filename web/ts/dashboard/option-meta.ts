@@ -563,7 +563,8 @@ export const OPTION_META: Record<string, OptionMeta> = {
     group: CLOUD,
     help:
       "Register this emulated CT with your Marstek account once, so their app " +
-      "shows it like a real one. Needs the e-mail and password below.",
+      "shows it like a real one. Also required for the Venus E Mini V295 " +
+      "compatibility mode when its CT list is empty. Needs the e-mail and password below.",
   },
   marstek_mailbox: {
     label: "Marstek account e-mail",

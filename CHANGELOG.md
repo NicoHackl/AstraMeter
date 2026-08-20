@@ -2,7 +2,7 @@
 
 ## Next
 
-- **Fixed** Venus E Mini units on firmware V295 finding no meter to select: port 2220 now recognizes their CT-framed discovery probes and advertises a stable virtual HME-4 CT.
+- **Fixed** Venus E Mini V295 units finding no meter to select: AstraMeter now handles their port-2220 CT probes and can register the matching HME-4 in the Marstek app. Enable Marstek CT registration and enter the account credentials once.
 
 - **Fixed** B2500 batteries sitting at 0 W under active control while the whole house load was imported: the command they were sent could never exceed what the battery needs to start, and a battery that never starts was never sent more ([#600](https://github.com/tomquist/astrameter/issues/600), [#614](https://github.com/tomquist/astrameter/pull/614)).
 

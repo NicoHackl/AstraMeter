@@ -100,7 +100,7 @@ configuration:
     description: "Covers the few watts of real load the battery firmware leaves importing in steady state (its input deadband won't chase a small residual), recovering that self-consumption at the retail price. Only nudges once the grid has held steady for a few polls — never during a load step, so it adds no overshoot — and stays clear of a full/empty battery. Default 15; set 0 to turn off. Only applies to CT002/CT003 device types."
   marstek_auto_register_ct_device:
     name: Auto-register Managed CT Device (Marstek)
-    description: "If enabled, the app signs in to your Marstek account at startup and ensures one managed fake CT device exists for each emulated CT type (ct002 -> HME-4, ct003 -> HME-3). Existing matching devices are reused to avoid duplicates."
+    description: "If enabled, the app signs in to your Marstek account at startup and ensures one managed fake CT device exists for each emulated CT type (ct002 -> HME-4, ct003 -> HME-3). The Venus E Mini V295 compatibility mode on shellypro3em_new also registers HME-4 so it appears in an empty CT list. Existing matching devices are reused to avoid duplicates."
   marstek_mailbox:
     name: Marstek Account Email
     description: "Email address used to sign in to your Marstek account for managed CT device registration."

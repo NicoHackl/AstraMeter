@@ -301,18 +301,26 @@ async def run_device(
         # Venus E Mini V295 (HHM-2) sends a native CT002 frame to the new
         # Shelly port instead of JSON-RPC. Keep the established JSON handler
         # and multiplex the existing CT implementation onto the same socket.
-        # Its stable virtual MAC is what the app shows after the all-zero
-        # discovery poll; replying with the wildcard would leave no CT to pick.
+        # Prefer the HME-4 identity registered in the user's Marstek account:
+        # the Venus app builds its CT picker from that account list.  Without
+        # registration, keep the deterministic local identity so discovery
+        # still never advertises the all-zero wildcard back to the battery.
+        fallback_ct_mac = marstek_mac or _virtual_ct_mac(device_id or "shellypro3em")
         fallback_ct = _build_ct002(
             replace(
                 config.ct("ct002"),
                 udp_port=2220,
-                ct_mac=_virtual_ct_mac(device_id or "shellypro3em"),
+                ct_mac=fallback_ct_mac,
             ),
             "HME-4",
             device_id or "",
             False,
             lambda: _reset_all_powermeters(powermeters),
+        )
+        logger.info(
+            "Venus E Mini HME-4 identity: %s (%s)",
+            fallback_ct_mac,
+            "registered with Marstek" if marstek_mac else "local only",
         )
 
         async def update_fallback_readings(addr, _fields=None, _consumer_id=None):
@@ -678,26 +686,40 @@ def _build_managed_marstek(
         timezone=marstek.timezone,
     )
     try:
-        any_ct = False
-        for dt in ("ct002", "ct003"):
-            if dt in device_types:
-                any_ct = True
-                created = ensure_managed_fake_device(marstek_cfg, dt)
-                if created is not None:
-                    normalized = normalize_mac(str(created.get("mac", "")))
-                    if normalized:
-                        managed_marstek[dt] = (
-                            normalized,
-                            ver_v_from_marstek_api_version(created.get("version")),
-                        )
-        if any_ct:
+        # ``shellypro3em_new`` also hosts an HME-4 responder for Venus E Mini
+        # V295.  Register that identity exactly like ct002 so it exists in the
+        # Marstek app's CT list, then pass the resulting MAC to the fallback.
+        registration_targets = {
+            "ct002": tuple(
+                dt for dt in ("ct002", "shellypro3em_new") if dt in device_types
+            ),
+            "ct003": tuple(dt for dt in ("ct003",) if dt in device_types),
+        }
+        registered_types: list[str] = []
+        for ct_type, runtime_types in registration_targets.items():
+            if not runtime_types:
+                continue
+            created = ensure_managed_fake_device(marstek_cfg, ct_type)
+            if created is None:
+                continue
+            normalized = normalize_mac(str(created.get("mac", "")))
+            if not normalized:
+                continue
+            binding = (
+                normalized,
+                ver_v_from_marstek_api_version(created.get("version")),
+            )
+            for runtime_type in runtime_types:
+                managed_marstek[runtime_type] = binding
+            registered_types.append(ct_type)
+        if any(registration_targets.values()):
             logger.info(
                 "Managed fake CT registration completed. Fake CT devices appear as offline in the Marstek app CT list (this is expected)."
             )
             ct_names = []
-            if "ct002" in device_types:
+            if "ct002" in registered_types:
                 ct_names.append("AstraMeter CT002")
-            if "ct003" in device_types:
+            if "ct003" in registered_types:
                 ct_names.append("AstraMeter CT003")
             logger.info(
                 "Pairing hint: refresh the CT device list (or log out/in if needed), select %s, switch battery mode to Automatic, and choose that CT."
