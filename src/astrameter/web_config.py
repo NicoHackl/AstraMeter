@@ -231,8 +231,8 @@ def config_to_json(config_path: str) -> str:
 _PM_COMMON: dict[str, dict[str, object]] = {
     "THROTTLE_INTERVAL": {"type": "float"},
     "WAIT_FOR_NEXT_MESSAGE": {"type": "boolean"},
-    "POWER_OFFSET": {"type": "float"},
-    "POWER_MULTIPLIER": {"type": "float"},
+    "POWER_OFFSET": {},
+    "POWER_MULTIPLIER": {},
     "NETMASK": {},
     "PID_KP": {"type": "float"},
     "PID_KI": {"type": "float"},
@@ -261,6 +261,10 @@ SECTION_KEY_TYPES: dict[str, dict[str, dict[str, object]]] = {
         },
         "SKIP_POWERMETER_TEST": {"type": "boolean"},
         "WEB_CONFIG_ENABLED": {"type": "boolean"},
+        "DASHBOARD_ENABLED": {"type": "boolean"},
+        "DASHBOARD_ALLOW_WRITE": {"type": "boolean"},
+        "DASHBOARD_DIRECT_ACCESS": {"type": "boolean"},
+        "DASHBOARD_ALLOWED_HOSTS": {"type": "string"},
         "ENABLE_WEB_SERVER": {"type": "boolean"},
         "WEB_SERVER_PORT": {"type": "integer"},
         "DISABLE_SUM_PHASES": {"type": "boolean"},
@@ -346,6 +350,7 @@ SECTION_KEY_TYPES: dict[str, dict[str, dict[str, object]]] = {
     ),
     "VZLOGGER": _pm(PORT={"type": "integer"}),
     "ESPHOME": _pm(PORT={"type": "integer"}),
+    "ESPHOMENATIVE": _pm(PORT={"type": "integer"}, API_KEY={"type": "password"}),
     "AMIS_READER": _pm(),
     "MODBUS": _pm(
         PORT={"type": "integer"},
@@ -388,7 +393,12 @@ SECTION_KEY_TYPES: dict[str, dict[str, dict[str, object]]] = {
         DEVICE_ID={"type": "integer"},
         PER_PHASE={"type": "boolean"},
     ),
-    "TIBBER_PULSE": _pm(PASSWORD={"type": "password"}),
+    "REFOSS": _pm(CHANNELS={}),
+    "MEROSS": _pm(CHANNELS={}),
+    "TIBBER_PULSE": _pm(
+        PASSWORD={"type": "password"},
+        TIMEOUT={"type": "float"},
+    ),
     "SCRIPT": _pm(),
     "SML": _pm(),
     "MQTT_INSIGHTS": {

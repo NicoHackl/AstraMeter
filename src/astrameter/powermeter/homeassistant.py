@@ -7,6 +7,8 @@ from typing import Any
 
 import aiohttp
 
+from astrameter.power_units import POWER_UNIT_SCALE, POWER_UNITS
+
 from .base import Powermeter
 
 # Stdlib logger: avoid importing astrameter.config (config_loader imports powermeter).
@@ -14,9 +16,12 @@ logger = logging.getLogger("astrameter")
 
 # Home Assistant websocket subscribe_entities compressed state (homeassistant.const)
 _HA_S = "s"
+_HA_A = "a"
 _HA_LU = "lu"
 _HA_LC = "lc"
 _HA_DIFF_ADD = "+"
+
+_ATTR_UNIT_OF_MEASUREMENT = "unit_of_measurement"
 
 # WebSocket heartbeat (seconds) — same rationale as HomeWizard.
 WS_HEARTBEAT_SECONDS = 30.0
@@ -71,6 +76,10 @@ class HomeAssistant(Powermeter):
         # a dead TCP connection on our side. A constant numeric value is
         # therefore legitimate and must not be treated as stale.
         self._entity_values: dict[str, float | None] = {}
+        # Last-seen ``unit_of_measurement`` per entity (``None`` = no unit
+        # attribute → assume watts). Values are converted at read time so
+        # unit and state updates may arrive in any order.
+        self._entity_units: dict[str, str | None] = {}
         self._tracked_entities = self._collect_entities()
         self._msg_id = 0
         self._subscribe_entities_id: int | None = None
@@ -180,6 +189,7 @@ class HomeAssistant(Powermeter):
                     and isinstance(st, dict)
                     and _HA_S in st
                 ):
+                    self._update_entity_unit(eid, st.get(_HA_A))
                     self._update_entity_value(eid, st.get(_HA_S))
         changes = ev.get("c")
         if isinstance(changes, dict):
@@ -189,6 +199,10 @@ class HomeAssistant(Powermeter):
                 plus = diff.get(_HA_DIFF_ADD)
                 if not isinstance(plus, dict):
                     continue
+                if _HA_A in plus:
+                    # Partial attribute diff — only touches the recorded
+                    # unit when unit_of_measurement itself changed.
+                    self._update_entity_unit(eid, plus.get(_HA_A), partial=True)
                 if _HA_S in plus:
                     self._update_entity_value(eid, plus.get(_HA_S))
                 elif (_HA_LU in plus or _HA_LC in plus) and self._entity_values.get(
@@ -205,7 +219,7 @@ class HomeAssistant(Powermeter):
                     self._update_entity_value(eid, None)
 
     async def _handle_message(
-        self, ws: aiohttp.ClientWebSocketResponse, raw: str
+        self, ws: aiohttp.ClientWebSocketResponse[bool], raw: str
     ) -> None:
         try:
             msg = json.loads(raw)
@@ -285,6 +299,7 @@ class HomeAssistant(Powermeter):
                 )
                 continue
             if isinstance(data, dict):
+                self._update_entity_unit(eid, data.get("attributes"))
                 self._update_entity_value(eid, data.get("state"))
 
     def _update_entity_value(self, entity_id: str, state_val: object) -> None:
@@ -305,6 +320,47 @@ class HomeAssistant(Powermeter):
         self._check_entities_ready()
         self._message_event.set()
 
+    def _update_entity_unit(
+        self, entity_id: str, attributes: object, *, partial: bool = False
+    ) -> None:
+        """Record the entity's ``unit_of_measurement`` from an attributes dict.
+
+        ``partial=True`` marks a ``+`` attribute diff: it only touches the
+        recorded unit when the key itself is present. A full attributes
+        payload (snapshot / REST fetch) *replaces* the recorded unit —
+        including clearing it back to the watts default when the entity no
+        longer declares one, so a stale unit can't survive a reconnect or
+        an entity reconfiguration.
+        """
+        if partial and (
+            not isinstance(attributes, dict)
+            or _ATTR_UNIT_OF_MEASUREMENT not in attributes
+        ):
+            return
+        unit = (
+            attributes.get(_ATTR_UNIT_OF_MEASUREMENT)
+            if isinstance(attributes, dict)
+            else None
+        )
+        if not isinstance(unit, str) or not unit:
+            unit = None
+        if entity_id in self._entity_units and self._entity_units[entity_id] == unit:
+            return
+        self._entity_units[entity_id] = unit
+        if unit is None or unit == "W":
+            return
+        if unit in POWER_UNIT_SCALE:
+            logger.info(
+                f"Home Assistant sensor {entity_id} reports {unit}; "
+                f"converting to W automatically"
+            )
+        else:
+            logger.error(
+                f"Home Assistant sensor {entity_id} reports unit "
+                f"'{unit}', which is not a power unit — expected one of "
+                f"{', '.join(POWER_UNITS)}. Its values will be rejected."
+            )
+
     def _check_entities_ready(self) -> None:
         ready = all(
             self._entity_values.get(e) is not None for e in self._tracked_entities
@@ -318,7 +374,17 @@ class HomeAssistant(Powermeter):
         val = self._entity_values.get(entity_id)
         if val is None:
             raise ValueError(f"Home Assistant sensor {entity_id} has no state")
-        return val
+        unit = self._entity_units.get(entity_id)
+        if unit is None:
+            return val
+        scale = POWER_UNIT_SCALE.get(unit)
+        if scale is None:
+            raise ValueError(
+                f"Home Assistant sensor {entity_id} reports unit '{unit}', "
+                f"which is not a power unit — expected one of "
+                f"{', '.join(POWER_UNITS)}"
+            )
+        return val * scale
 
     def stream_online(self) -> bool | None:
         # Availability-based, never timestamp-based: a steady/constant phase

@@ -2,19 +2,86 @@
 Embedded web server for AstraMeter.
 
 Exposes a health-check endpoint (used by Docker HEALTHCHECK and the
-Home Assistant addon watchdog) and, when enabled, a browser-based
-configuration editor.
+Home Assistant addon watchdog) and, when enabled, the live status
+dashboard plus a browser-based configuration editor.
 """
 
+import asyncio
 import errno
+import html
+import ipaddress
 import json
 import os
 import threading
+from collections.abc import Collection, Iterable
 
 from aiohttp import web
 
 from astrameter.config.logger import logger
+from astrameter.status import HA_SIMPLE
+from astrameter.status.secrets import redact_sections, restore_sections
 from astrameter.version_info import get_git_commit_sha
+
+# Supervisor proxies every ingress request from this fixed address on the
+# hassio bridge.  It is the *peer* address, so unlike X-Ingress-Path or
+# X-Hass-Source it cannot be forged by a LAN client hitting the
+# host-networked port directly.
+INGRESS_PEER = "172.30.32.2"
+
+#: How long a deferred Supervisor restart waits before firing, so the response
+#: that asked for it is on the wire before the container goes down.
+RESTART_GRACE_S = 0.5
+
+#: The health check, which is exempt from the host guard below: Docker's
+#: HEALTHCHECK and the add-on watchdog reach it under whatever name the
+#: operator's monitoring uses, and it neither reads state nor writes anything.
+HEALTH_PATHS = ("/health", "/health/", "/api", "/api/")
+
+#: How many distinct refused host names to remember for log deduplication.
+#: The name comes from the request, so this is a bound on what a caller can
+#: make the process hold.
+_REFUSED_HOST_LOG_CAP = 64
+
+# Only reachable in the add-on, where ingress is the intended way in. Kept to
+# plain inline markup: the bundle is exactly what this response is refusing to
+# hand out.
+_REFUSED_HTML = b"""<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AstraMeter \xe2\x80\x94 not reachable from here</title>
+<style>
+body{font:16px/1.6 system-ui,sans-serif;max-width:34rem;margin:12vh auto;padding:0 1.5rem}
+code{background:#8883;padding:.1em .35em;border-radius:.25em}
+</style>
+<h1>Not reachable from here</h1>
+<p>The AstraMeter dashboard opens from the <strong>Home Assistant sidebar</strong>,
+which is what authenticates you. This port has no login of its own, so it is
+refused by default.</p>
+<p>To use this address instead, turn on <code>dashboard_direct_access</code> in the
+add-on's configuration &mdash; understanding that anyone on your network can then
+open it.</p>
+"""
+
+# Shown when the Host header names something the guard does not recognise.
+# Most of the time that is the operator reaching the page under a name of
+# their own rather than an attack, so it says how to allow it.
+_FOREIGN_HOST_HTML = """<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AstraMeter — unrecognised address</title>
+<style>
+body{{font:16px/1.6 system-ui,sans-serif;max-width:34rem;margin:12vh auto;padding:0 1.5rem}}
+code{{background:#8883;padding:.1em .35em;border-radius:.25em}}
+</style>
+<h1>Unrecognised address</h1>
+<p>This page was requested as <code>{host}</code>, which is not an address
+AstraMeter answers under. The page has no login, so it only answers under
+addresses that cannot be pointed here by someone else &mdash; an IP address,
+or a name you have listed yourself.</p>
+<p>Open it by IP address instead, or add this name to
+<code>DASHBOARD_ALLOWED_HOSTS</code> (<code>dashboard_allowed_hosts</code> in the
+Home Assistant add-on) if it is yours.</p>
+"""
 
 
 def _health_json_bytes():
@@ -26,44 +93,462 @@ def _health_json_bytes():
     return json.dumps(payload).encode("utf-8")
 
 
+def _json(payload, status=200, **headers):
+    """JSON response with no-store caching unless overridden."""
+    headers.setdefault("Cache-Control", "no-store")
+    return web.Response(
+        body=json.dumps(payload).encode("utf-8"),
+        status=status,
+        content_type="application/json",
+        headers=headers,
+    )
+
+
+#: Content type every mutating request must declare.
+#:
+#: This is the dashboard's only defence against a *cross-origin* write. The
+#: page has no login, so the gate in :meth:`WebServer._trusted` can only ask
+#: where a request came from — and a request a website makes through the
+#: operator's own browser comes from exactly the right place. Nothing about
+#: the reply reaching that page matters: the write has already landed.
+#:
+#: A browser will not send this header cross-origin without a preflight first,
+#: and no route answers one, so the write never leaves the browser. The form
+#: encodings it *will* send without asking (``text/plain``,
+#: ``application/x-www-form-urlencoded``, ``multipart/form-data``) are exactly
+#: what this refuses — note that ``aiohttp``'s ``request.json()`` parses a body
+#: whatever its declared type, so the check has to be explicit.
+#:
+#: It must compare the parsed **media type**, never search the raw header. What
+#: makes a request preflight-free is the *essence* of its content type — the
+#: part before the first ``;`` — so ``text/plain; x=application/json`` is sent
+#: cross-origin with no preflight while still containing this string. A
+#: substring test lets that through, and the bodiless restart routes do not even
+#: need the body to parse afterwards. ``request.content_type`` is already the
+#: essence, lowercased, and is what the comparison below uses.
+#:
+#: ``esphome/components/ct002/dashboard.cpp`` enforces the same header, for the
+#: same reason (see AGENTS.md — the write path has parity). The two must not
+#: diverge: a request one stack accepts and the other refuses means the risk is
+#: real on whichever half forgot — which is why that side parses the essence too
+#: rather than calling ``find()`` on the header.
+JSON_CONTENT_TYPE = "application/json"
+
+
+def _requires_json_content_type(handler):
+    """Wrap *handler* so a request not declared as JSON is refused."""
+
+    async def guarded(request):
+        if request.content_type.casefold() != JSON_CONTENT_TYPE:
+            return _json(
+                {"error": f"Content-Type must be {JSON_CONTENT_TYPE}"}, status=415
+            )
+        return await handler(request)
+
+    return guarded
+
+
+#: Host names always accepted, beyond IP literals and the operator's own list.
+#:
+#: ``localhost`` resolves to the loopback address and nowhere else, ``.local``
+#: is mDNS (RFC 6762): a browser resolves it by multicast on the link, not
+#: through the attacker's nameserver, and ``.home.arpa`` is the name reserved
+#: for home networks (RFC 8375) — the DNS root will not delegate it, so no
+#: outside nameserver can be asked about a name under it either. None of the
+#: three can be pointed at a LAN address from outside. Everything else has to
+#: be named explicitly.
+#:
+#: A router-assigned suffix that is *not* reserved does not belong here however
+#: common it is: ``.box`` (AVM's ``fritz.box``) and ``.lan`` are ordinary
+#: labels a nameserver can answer for, so they stay a
+#: ``DASHBOARD_ALLOWED_HOSTS`` decision the operator makes for their own
+#: network rather than one shipped for everyone's.
+ALWAYS_ALLOWED_HOST_SUFFIXES = (".localhost", ".local", ".home.arpa")
+ALWAYS_ALLOWED_HOSTS = ("localhost",)
+
+
+def _host_name(host: str) -> str:
+    """The name part of a ``Host`` header value, without its port.
+
+    An IPv6 literal is bracketed there (RFC 3986), which is also what keeps
+    its colons apart from the port separator.
+    """
+    host = host.strip()
+    if host.startswith("["):
+        end = host.find("]")
+        return host[1:end] if end != -1 else host[1:]
+    # One colon separates a port; several mean an unbracketed IPv6 literal,
+    # which is malformed but still parses as an address below.
+    if host.count(":") == 1:
+        host = host.split(":", 1)[0]
+    return host
+
+
+def parse_allowed_hosts(value: str | Iterable[str] | None) -> tuple[str, ...]:
+    """Normalise the configured host allowlist to compare against."""
+    if not value:
+        return ()
+    items = value.split(",") if isinstance(value, str) else value
+    return tuple(name for name in (_normalise_host(item) for item in items) if name)
+
+
+def _normalise_host(name: str) -> str:
+    """Casefold a host name and drop the root label a resolver ignores."""
+    return name.strip().rstrip(".").casefold()
+
+
+def is_allowed_host(host: str, allowed: Collection[str] = ()) -> bool:
+    """True when *host* is one this server may answer under.
+
+    This is the defence against **DNS rebinding**, which the content-type
+    guard above cannot cover. There, the attacker's page is refused because a
+    browser will not send ``application/json`` across origins without a
+    preflight. Rebinding removes the cross-origin part entirely: the attacker
+    serves a page from a name they control, answers the second lookup for that
+    name with the victim's LAN address, and the browser then treats
+    ``http://evil.example:52500/`` as *same-origin* with the page. Any content
+    type is fair game, and — unlike a blind cross-origin write — the reply is
+    readable, so ``/api/config`` hands back the configuration and
+    ``/api/status`` the state of the house. The write side is worse: a
+    ``[SCRIPT]`` section is a shell command the loader runs, and ``/api/restart``
+    asks for exactly that.
+
+    What the attack cannot do is control the ``Host`` header, because the
+    browser fills it in from the name in the URL — and the name has to be one
+    they own for their nameserver to be asked in the first place. So an
+    address that is not a name at all (the IP literal a LAN user types, which
+    needs no lookup and cannot be rebound), the names that resolve without a
+    nameserver, and whatever the operator adds for their own setup, are the
+    complete allowlist. Requests under any other name are refused.
+
+    Mirrored by ``controls::is_allowed_host`` in
+    ``esphome/components/ct002/controls.cpp`` — the firmware's dashboard has no
+    login either (see AGENTS.md: the write path has parity, and the bounds must
+    match).
+    """
+    name = _normalise_host(_host_name(host))
+    if not name:
+        # HTTP/1.1 requires a Host header and every browser sends one, so its
+        # absence is not a request this surface needs to answer.
+        return False
+    if name in allowed:
+        return True
+    # A scoped address (`fd00::1%eth0`) names a local interface. `ip_address`
+    # accepts one, but a browser cannot put it in a URL's host, and the C++
+    # mirror would have to grow a parser for it — so neither side takes it.
+    if "%" not in name:
+        try:
+            ipaddress.ip_address(name)
+        except ValueError:
+            pass
+        else:
+            return True
+    return name in ALWAYS_ALLOWED_HOSTS or name.endswith(ALWAYS_ALLOWED_HOST_SUFFIXES)
+
+
+_CONSUMER_SETTERS = {
+    "manual_target": "set_consumer_manual_target",
+    "auto_target": "set_consumer_auto_target",
+    "active": "set_consumer_active",
+    "distribution_weight": "set_consumer_distribution_weight",
+    "efficiency_window_weight": "set_consumer_efficiency_window_weight",
+    "min_dc_output": "set_consumer_min_dc_output",
+}
+
+# The CT002 setters themselves do not bound their inputs — the ranges live in
+# the MQTT command handlers.  The dashboard must enforce exactly the same
+# ones, or a value MQTT would reject could be set here and then silently
+# reverted on the next broker reconnect.
+_CONTROL_RANGES = {
+    "manual_target": (-10000.0, 10000.0),
+    "distribution_weight": (0.0, 10.0),
+    "efficiency_window_weight": (0.0, 100.0),
+    "min_dc_output": (0.0, 1000.0),
+}
+
+_CONTROL_BOOLS = ("active", "auto_target")
+
+# Fields the wire carries in different units from the setter, mirroring the
+# MQTT handlers: the entity is a percentage, the setter takes a fraction.
+_CONTROL_SCALE = {"efficiency_window_weight": 0.01}
+
+
+def _coerce_control_value(field, value):
+    """Validate and coerce a control value, mirroring the MQTT bounds."""
+    import math
+
+    if field in _CONTROL_BOOLS:
+        if not isinstance(value, bool):
+            raise ValueError(f"{field} must be true or false")
+        return value
+    low, high = _CONTROL_RANGES[field]
+    try:
+        number = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{field} must be a number") from exc
+    if not math.isfinite(number) or not low <= number <= high:
+        raise ValueError(f"{field} must be between {low:g} and {high:g}")
+    return number * _CONTROL_SCALE.get(field, 1.0)
+
+
+def addon_option_names(schema) -> set[str]:
+    """Every option name in an add-on schema, whichever shape it arrived in.
+
+    Supervisor renders the add-on's declared schema before serving it: what
+    ``/addons/self/info`` returns is a *list* of field descriptors
+    (``{"name": "ct_mac", "optional": true, "type": "string"}``), not the
+    ``name: validator`` mapping config.yaml declares. Both are read here so
+    the same code works against either — and so a list cannot reach ``set()``,
+    where its unhashable entries used to abort the save with a 500.
+    """
+    if isinstance(schema, list):
+        return {
+            entry["name"]
+            for entry in schema
+            if isinstance(entry, dict) and isinstance(entry.get("name"), str)
+        }
+    if isinstance(schema, dict):
+        return {key for key in schema if isinstance(key, str)}
+    return set()
+
+
+def _unrenderable_descriptors(schema: list) -> dict[str, str]:
+    """Field descriptors the guided form has to show read-only, by name.
+
+    A repeated option (``multiple``) or a nested block (``type: "schema"``)
+    holds a list or an object; a text box over one would write a string back
+    and flatten it.
+    """
+    odd: dict[str, str] = {}
+    for index, entry in enumerate(schema):
+        if not isinstance(entry, dict) or not isinstance(entry.get("name"), str):
+            odd[f"#{index}"] = type(entry).__name__
+            continue
+        kind = entry.get("type")
+        if kind == "schema":
+            odd[entry["name"]] = (
+                "repeated nested block" if entry.get("multiple") else "nested block"
+            )
+        elif entry.get("multiple"):
+            odd[entry["name"]] = f"repeated {kind}"
+    return odd
+
+
 class WebServer:
-    """Async HTTP server exposing health, config-editor and API routes."""
+    """Async HTTP server exposing health, dashboard, config and API routes."""
 
     def __init__(
         self,
         port=52500,
         bind_address="0.0.0.0",
         config_path: str | None = None,
-        enable_web_config: bool = False,
+        enable_web_config: bool | None = None,
+        status=None,
+        allowed_hosts: str | Iterable[str] | None = None,
     ):
         """Initialise the service; call ``start()`` to bind the port."""
         self.port = port
         self.bind_address = bind_address
         self.config_path = config_path
         self.enable_web_config = enable_web_config
+        self.status = status
+        self.allowed_hosts = parse_allowed_hosts(allowed_hosts)
+        # The dashboard hides its Configuration tab when the backend names no
+        # config_mode, which is how an ESPHome device says it has nothing to
+        # edit. Say the same here when the editor is off, so the tab is never
+        # a link to routes this server does not serve.
+        if status is not None and not self.serve_config_editor:
+            status.config_editor = False
         self._runner = None
+        #: Host names already reported as refused, so a page reloading behind
+        #: a misconfigured name logs once rather than on every poll. Bounded by
+        #: :data:`_REFUSED_HOST_LOG_CAP` — the names are the caller's to choose.
+        self._logged_hosts: set[str] = set()
+        self._logged_host_cap_hit = False
+        #: Whether an unrenderable add-on schema has already been reported.
+        self._logged_schema_shape = False
+        #: Deferred restarts, held so the loop cannot collect them mid-flight.
+        self._pending_restarts: set = set()
+
+    # -- gating --------------------------------------------------------
+
+    @property
+    def enable_dashboard(self) -> bool:
+        return bool(self.status is not None and self.status.dashboard_enabled)
+
+    @property
+    def serve_config_editor(self) -> bool:
+        """Whether the ``config.ini`` editor is part of this server.
+
+        ``WEB_CONFIG_ENABLED`` is tri-state deliberately. Left unset it
+        follows the dashboard, whose Configuration tab *is* the editor — the
+        flag is not something a new user should have to find to get the
+        feature the page advertises. Set, it is an explicit answer either way:
+        ``True`` serves the editor with no dashboard, which is what the flag
+        meant before there was one, and ``False`` keeps it off even when the
+        dashboard is on. That last case is the point. The dashboard defaults
+        on and writable, so without it, upgrading would hand back an
+        unauthenticated config surface to the one user who went looking for
+        the switch that turns it off — and a config write is a ``[SCRIPT]``
+        section away from being a shell command.
+        """
+        if self.enable_web_config is None:
+            return self.enable_dashboard
+        return self.enable_web_config
+
+    def _is_ingress(self, request) -> bool:
+        """True when the request arrived through Home Assistant ingress.
+
+        Ingress requests are already authenticated by Home Assistant, which
+        is what makes the dashboard's write surface safe without any auth of
+        our own.
+        """
+        return request.remote == INGRESS_PEER
+
+    def _refuse_foreign_host(self, request):
+        """Refuse a request whose ``Host`` is a name that could be rebound.
+
+        Returns the refusal, or ``None`` to let the request through. See
+        :func:`is_allowed_host` for what the guard is defending against.
+
+        Ingress is exempt: the Supervisor sets ``Host`` to whatever name the
+        user reaches Home Assistant under, which is a name we cannot know and
+        do not need to — the peer address already proves the hop, and Home
+        Assistant has authenticated the user before this point.
+        """
+        if request.path in HEALTH_PATHS or self._is_ingress(request):
+            return None
+        host = request.headers.get("Host", "")
+        if is_allowed_host(host, self.allowed_hosts):
+            return None
+        shown = host or "(no Host header)"
+        # Log each name once — but the name is attacker-chosen, and a page
+        # sweeping unlimited subdomains would otherwise grow this set (and the
+        # log) without bound. Past the cap, say so once and go quiet: the
+        # operator's own misconfigured hostname is one of the first few, not
+        # the thousandth.
+        if shown not in self._logged_hosts:
+            if len(self._logged_hosts) < _REFUSED_HOST_LOG_CAP:
+                self._logged_hosts.add(shown)
+                logger.warning(
+                    "Refused a request for %s: %s is not an address this server "
+                    "answers under. Reach it by IP, or add the name to "
+                    "DASHBOARD_ALLOWED_HOSTS (dashboard_allowed_hosts in the "
+                    "add-on) if it is yours.",
+                    request.path,
+                    shown,
+                )
+            elif not self._logged_host_cap_hit:
+                self._logged_host_cap_hit = True
+                logger.warning(
+                    "Refused requests for %d different host names; not logging "
+                    "further ones. A page sweeping many names is what this "
+                    "guard exists to stop.",
+                    _REFUSED_HOST_LOG_CAP,
+                )
+        message = (
+            f"{shown} is not an address AstraMeter answers under. Reach it by "
+            "IP address, or add the name to DASHBOARD_ALLOWED_HOSTS."
+        )
+        if request.path.startswith("/api/"):
+            return _json({"error": message}, status=403)
+        return web.Response(
+            status=403,
+            text=_FOREIGN_HOST_HTML.format(host=html.escape(shown)),
+            content_type="text/html",
+        )
+
+    def _trusted(self, request) -> bool:
+        """True when this request may see or change anything sensitive.
+
+        Fail-closed under the add-on: with ``host_network: true`` the port is
+        on the LAN unauthenticated, so serving it must be opted into. Outside
+        the add-on there is no ingress and the plain port is the only way in
+        (see ``StatusRegistry.serves_direct``).
+        """
+        if self.status is None:
+            return False
+        return self._is_ingress(request) or self.status.serves_direct()
+
+    def _may_write(self, request) -> bool:
+        return bool(
+            self.status is not None
+            and self.status.allow_write
+            and self._trusted(request)
+        )
+
+    def _actor(self, request) -> str:
+        """Who made a mutating request, for the audit log."""
+        # Home Assistant sets these on an ingress request. Reached directly the
+        # port is on the LAN, where any client can send the same headers, so
+        # believing them there would let a caller sign the audit trail with
+        # someone else's name.
+        if not self._is_ingress(request):
+            return f"direct {request.remote}"
+        name = request.headers.get("X-Remote-User-Display-Name")
+        uid = request.headers.get("X-Remote-User-Id")
+        if name or uid:
+            return f"{name or 'unknown'} ({uid or 'no id'})"
+        return f"direct {request.remote}"
+
+    def build_app(self):
+        """Assemble the aiohttp application.
+
+        Split out from ``start()`` so tests exercise the real route table
+        rather than a copy of it that can drift.
+        """
+
+        # The host guard runs as middleware rather than per route: unlike the
+        # content-type check it also has to cover the two pages registered
+        # directly below (``/`` and ``/config``), and a document served under a
+        # rebound name is the request that goes on to drive the API.
+        @web.middleware
+        async def host_guard(request, handler):
+            refusal = self._refuse_foreign_host(request)
+            if refusal is not None:
+                return refusal
+            return await handler(request)
+
+        app = web.Application(middlewares=[host_guard])
+        # aiohttp auto-handles HEAD for GET routes.
+        for path in HEALTH_PATHS:
+            app.router.add_get(path, self._handle_health)
+
+        if self.enable_dashboard:
+            # Registered once: aiohttp raises on a duplicate resource, and
+            # "/" and "" are the same route.
+            app.router.add_get("/", self._handle_dashboard)
+            self._add("GET", app, "/api/status", self._handle_api_status)
+            self._add(
+                "POST", app, "/api/control/consumer", self._handle_control_consumer
+            )
+            self._add("POST", app, "/api/control/device", self._handle_control_device)
+            self._add("GET", app, "/api/addon/options", self._handle_addon_options_get)
+            self._add(
+                "POST", app, "/api/addon/options", self._handle_addon_options_post
+            )
+            self._add("POST", app, "/api/addon/restart", self._handle_addon_restart)
+            self._add("GET", app, "/api/ha/entities", self._handle_ha_entities)
+            self._add("POST", app, "/api/config-mode", self._handle_config_mode_post)
+
+        # The INI editor is reachable either from the dashboard or from the
+        # standalone WEB_CONFIG_ENABLED flag — see `serve_config_editor` for
+        # how the two combine, and why a flag set to False wins over both.
+        if self.serve_config_editor:
+            app.router.add_get("/config", self._handle_config_ui)
+            app.router.add_get("/config/", self._handle_config_ui)
+            self._add("GET", app, "/api/config", self._handle_api_config_get)
+            self._add("GET", app, "/api/key-types", self._handle_api_key_types)
+            self._add("POST", app, "/api/config", self._handle_api_config_post)
+            self._add("POST", app, "/api/restart", self._handle_api_restart)
+
+        # Catch-all for unknown paths
+        app.router.add_route("*", "/{path:.*}", self._handle_not_found)
+        return app
 
     async def start(self):
         """Bind the TCP port and start serving. Returns True on success, False on failure."""
-        app = web.Application()
-        # aiohttp auto-handles HEAD for GET routes.
-        for path in ("/health", "/health/", "/api", "/api/"):
-            app.router.add_get(path, self._handle_health)
-        if self.enable_web_config:
-            app.router.add_get("/config", self._handle_config_ui)
-            app.router.add_get("/config/", self._handle_config_ui)
-            app.router.add_get("/api/config", self._handle_api_config_get)
-            app.router.add_get("/api/config/", self._handle_api_config_get)
-            app.router.add_get("/api/key-types", self._handle_api_key_types)
-            app.router.add_get("/api/key-types/", self._handle_api_key_types)
-            app.router.add_post("/api/config", self._handle_api_config_post)
-            app.router.add_post("/api/config/", self._handle_api_config_post)
-            app.router.add_post("/api/restart", self._handle_api_restart)
-            app.router.add_post("/api/restart/", self._handle_api_restart)
-        # Catch-all for unknown paths
-        app.router.add_route("*", "/{path:.*}", self._handle_not_found)
-
-        self._runner = web.AppRunner(app, access_log=None)
+        self._runner = web.AppRunner(self.build_app(), access_log=None)
         await self._runner.setup()
         site = web.TCPSite(self._runner, self.bind_address, self.port)
         try:
@@ -80,15 +565,53 @@ class WebServer:
             return False
 
         logger.info(f"Web server started on {self.bind_address}:{self.port}")
-        if self.enable_web_config and self.config_path:
-            logger.warning(
-                "Config editor is ENABLED — unauthenticated read/write access is active. "
-                "Disable WEB_CONFIG_ENABLED when not in use."
-            )
-            logger.info(
-                f"Config editor accessible at http://{self.bind_address}:{self.port}/config"
-            )
+        self._log_access_posture()
         return True
+
+    @staticmethod
+    def _add(method, app, path, handler):
+        """Register *path* both with and without a trailing slash.
+
+        A redirect would send a `Location` header, which both ingress hops
+        copy verbatim — navigating the user out of the ingress prefix.
+
+        Every ``POST`` is wrapped in the JSON content-type guard here rather
+        than at each handler, so a route added later cannot forget it — see
+        :data:`JSON_CONTENT_TYPE` for what it defends against.
+        """
+        if method == "POST":
+            handler = _requires_json_content_type(handler)
+        app.router.add_route(method, path, handler)
+        app.router.add_route(method, path + "/", handler)
+
+    def _log_access_posture(self):
+        if not self.enable_dashboard:
+            if self.serve_config_editor and self.config_path:
+                logger.warning(
+                    "Config editor is ENABLED — unauthenticated read/write access "
+                    "is active. Disable WEB_CONFIG_ENABLED when not in use."
+                )
+            return
+        mode = self.status.config_mode if self.status else "unknown"
+        logger.info("Dashboard enabled (config mode: %s)", mode)
+        if self.status is None or not self.status.serves_direct():
+            return
+        if self.status.under_supervisor():
+            logger.warning(
+                "Dashboard direct access is ENABLED: %s:%s is reachable without "
+                "Home Assistant authentication. Only enable this on a trusted "
+                "network.",
+                self.bind_address,
+                self.port,
+            )
+        else:
+            # Not an opt-in here — it is the only way in — but the page is
+            # still unauthenticated, which the operator should know.
+            logger.info(
+                "Dashboard is served on %s:%s with no authentication.",
+                self.bind_address,
+                self.port,
+            )
 
     async def stop(self):
         """Tear down the aiohttp runner and release the port."""
@@ -113,8 +636,364 @@ class WebServer:
             headers={"Cache-Control": "no-cache"},
         )
 
+    # -- dashboard -----------------------------------------------------
+
+    async def _handle_dashboard(self, request):
+        """Serve the single-page dashboard."""
+        if not self._trusted(request):
+            # A person typed this into a browser, so answer in prose. The
+            # frontend carries the same explanation for a refused poll, but it
+            # never loads when the page itself is the thing being refused.
+            return web.Response(
+                body=_REFUSED_HTML,
+                status=403,
+                content_type="text/html",
+                charset="utf-8",
+            )
+        from astrameter.status.assets import dashboard_html
+
+        html = dashboard_html()
+        if html is None:
+            return _json(
+                {"error": "Dashboard asset missing from this build"}, status=503
+            )
+        return web.Response(
+            body=html,
+            content_type="text/html",
+            charset="utf-8",
+            headers={"Cache-Control": "no-cache, must-revalidate"},
+        )
+
+    async def _handle_api_status(self, request):
+        """Live status snapshot, with a weak ETag for cheap polling."""
+        if not self._trusted(request) or self.status is None:
+            return _json({"error": "Forbidden"}, status=403)
+        etag = self.status.etag()
+        if request.headers.get("If-None-Match") == etag:
+            return web.Response(
+                status=304, headers={"ETag": etag, "Cache-Control": "no-store"}
+            )
+        snapshot = self.status.snapshot(ingress=self._is_ingress(request))
+        return _json(snapshot, ETag=etag)
+
+    # -- live control --------------------------------------------------
+
+    def _device(self, device_id):
+        if self.status is None:
+            return None
+        entry = self.status.devices.get(device_id)
+        return entry.device if entry else None
+
+    async def _handle_control_consumer(self, request):
+        """Apply a per-battery control change."""
+        if not self._may_write(request):
+            return _json({"error": "Forbidden"}, status=403)
+        try:
+            body = await request.json()
+            device_id = body["device_id"]
+            consumer_id = body["consumer_id"]
+            field = body["field"]
+            value = body["value"]
+        except (KeyError, TypeError, json.JSONDecodeError) as exc:
+            return _json({"error": f"Invalid request: {exc}"}, status=400)
+
+        device = self._device(device_id)
+        setter_name = _CONSUMER_SETTERS.get(field)
+        setter = getattr(device, setter_name, None) if device and setter_name else None
+        if setter is None:
+            return _json({"error": "Unknown device or field"}, status=404)
+        try:
+            coerced = _coerce_control_value(field, value)
+            setter(consumer_id, coerced)
+        except ValueError as exc:
+            return _json({"error": str(exc)}, status=400)
+
+        logger.info(
+            "Dashboard control: %s %s.%s = %r by %s",
+            device_id,
+            consumer_id,
+            field,
+            value,
+            self._actor(request),
+        )
+        # Mirror to the retained MQTT command topic, otherwise the broker's
+        # redelivery on the next reconnect reverts what the user just set.
+        insights = getattr(self.status, "insights", None)
+        if insights is not None and hasattr(insights, "publish_consumer_command"):
+            try:
+                # The command topic carries the *entity* unit, the same one
+                # this request arrived in — mirror the wire value, not the
+                # scaled setter argument, or the replay on the next reconnect
+                # reapplies a percentage as a fraction.
+                await insights.publish_consumer_command(
+                    device_id, consumer_id, field, value
+                )
+            except Exception:
+                logger.exception("Failed to mirror control write to MQTT")
+        self.status.bump()
+        return _json({"applied": True, "rev": self.status.revision()})
+
+    async def _handle_control_device(self, request):
+        """Apply a device-wide control change."""
+        if not self._may_write(request):
+            return _json({"error": "Forbidden"}, status=403)
+        try:
+            body = await request.json()
+            device_id = body["device_id"]
+            field = body["field"]
+            value = body.get("value", True)
+        except (KeyError, TypeError, json.JSONDecodeError) as exc:
+            return _json({"error": f"Invalid request: {exc}"}, status=400)
+
+        device = self._device(device_id)
+        if device is None:
+            return _json({"error": "Unknown device"}, status=404)
+        try:
+            if field == "active_control":
+                device.set_active_control(bool(value))
+            elif field == "force_rotation":
+                device.force_efficiency_rotation()
+            else:
+                return _json({"error": "Unknown field"}, status=404)
+        except (AttributeError, ValueError) as exc:
+            return _json({"error": str(exc)}, status=400)
+
+        logger.info(
+            "Dashboard control: %s.%s = %r by %s",
+            device_id,
+            field,
+            value,
+            self._actor(request),
+        )
+        insights = getattr(self.status, "insights", None)
+        if insights is not None and hasattr(insights, "publish_device_command"):
+            try:
+                await insights.publish_device_command(device_id, {field: value})
+            except Exception:
+                logger.exception("Failed to mirror device write to MQTT")
+        self.status.bump()
+        return _json({"applied": True, "rev": self.status.revision()})
+
+    # -- Home Assistant add-on options ---------------------------------
+
+    def _supervisor(self, request):
+        """A Supervisor client, or an error response explaining why not."""
+        from astrameter.addon_client import SupervisorClient
+
+        if not self._may_write(request):
+            return None, _json({"error": "Forbidden"}, status=403)
+        client = SupervisorClient()
+        if not client.available():
+            return None, _json({"error": "Not running as a Home Assistant add-on"}, 409)
+        return client, None
+
+    async def _handle_addon_options_get(self, request):
+        """Current add-on options plus their schema, secrets redacted."""
+        client, error = self._supervisor(request)
+        if error:
+            return error
+        try:
+            info = await client.get_info()
+        except Exception as exc:
+            return _json({"error": str(exc)}, status=502)
+        options = dict(info.get("options") or {})
+        # Not `or {}`: that flattens exactly the malformed shapes worth
+        # reporting — `[]` would arrive here as an object and the diagnostic
+        # would say nothing. `None` is Supervisor's documented "no schema".
+        schema = info.get("schema")
+        self._log_unrenderable_schema(schema)
+        return _json(
+            {
+                "options": redact_sections({"o": options})["o"],
+                "schema": {} if schema is None else schema,
+                "slug": info.get("slug"),
+                "ingress_panel": info.get("ingress_panel"),
+            }
+        )
+
+    def _log_unrenderable_schema(self, schema) -> None:
+        """Name any schema entry the guided form cannot turn into a control.
+
+        A repeated or nested option renders read-only, and without this the
+        only clue is a greyed-out field. Says it once: the log is where an
+        operator looks, and the route is hit on every visit to the tab.
+        Types and option names only, never a value.
+        """
+        # `null` is documented and means the add-on declares no schema; the
+        # form says so on its own and there is nothing wrong to report.
+        if self._logged_schema_shape or schema is None:
+            return
+        if isinstance(schema, list):
+            odd = _unrenderable_descriptors(schema)
+        elif isinstance(schema, dict):
+            odd = {
+                k: type(v).__name__ for k, v in schema.items() if not isinstance(v, str)
+            }
+        else:
+            self._logged_schema_shape = True
+            logger.warning(
+                "Supervisor returned the add-on schema as %s, which is neither "
+                "a list of fields nor an object; the guided form cannot build "
+                "controls from it. Please report this with your Home Assistant "
+                "version.",
+                type(schema).__name__,
+            )
+            return
+        if odd:
+            self._logged_schema_shape = True
+            logger.warning(
+                "Add-on options the guided form cannot edit: %s. They are shown "
+                "read-only; change them on the add-on's own Configuration page.",
+                ", ".join(f"{k} ({t})" for k, t in sorted(odd.items())),
+            )
+
+    async def _handle_addon_options_post(self, request):
+        """Write add-on options through Supervisor.
+
+        Supervisor replaces the whole persisted overlay and silently drops
+        keys absent from the schema, so a typo would lose a value with no
+        error — every key is validated against the live schema first.
+        """
+        client, error = self._supervisor(request)
+        if error:
+            return error
+        try:
+            body = await request.json()
+            options = body["options"]
+            if not isinstance(options, dict):
+                raise ValueError("'options' must be an object")
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+            return _json({"error": f"Invalid request: {exc}"}, status=400)
+
+        try:
+            info = await client.get_info()
+        except Exception as exc:
+            return _json({"error": str(exc)}, status=502)
+        unknown = sorted(set(options) - addon_option_names(info.get("schema")))
+        if unknown:
+            return _json(
+                {"error": f"Unknown add-on option(s): {', '.join(unknown)}"}, status=400
+            )
+        merged = restore_sections(
+            {"o": options}, {"o": dict(info.get("options") or {})}
+        )["o"]
+
+        try:
+            await client.set_options(merged)
+        except Exception as exc:
+            return _json({"error": str(exc)}, status=400)
+        logger.info("Add-on options updated by %s", self._actor(request))
+        if body.get("restart"):
+            self._restart_after_response(client)
+            return _json({"saved": True, "restart": "supervisor"})
+        return _json({"saved": True, "restart": "none"})
+
+    async def _handle_ha_entities(self, request):
+        """Home Assistant sensors that could be a grid-power source.
+
+        Powers the entity picker in the guided form: typing a raw entity id
+        from memory is the single easiest way to misconfigure AstraMeter, and
+        a wrong id fails at start-up rather than here.
+        """
+        from astrameter.addon_client import SupervisorClient
+
+        if not self._trusted(request):
+            return _json({"error": "Forbidden"}, status=403)
+        client = SupervisorClient()
+        if not client.available():
+            return _json({"error": "Not running as a Home Assistant add-on"}, 409)
+        try:
+            entities = await client.list_power_entities()
+        except Exception as exc:
+            # A failed lookup must not block the form — the field stays a
+            # plain text input and the user can still type an id.
+            logger.warning("Could not list Home Assistant entities: %s", exc)
+            return _json({"entities": [], "error": str(exc)})
+        return _json({"entities": entities}, **{"Cache-Control": "max-age=30"})
+
+    def _restart_after_response(self, client) -> None:
+        """Ask Supervisor to restart us, once this response is on the wire.
+
+        The restart tears down the container serving the request, so awaiting
+        it inside the handler kills the process before the reply is flushed:
+        the browser gets a 502 from the ingress proxy for a call that in fact
+        succeeded, and the page shows an error for a switch that worked.
+        Deferring it by a beat lets the reply land first — the dashboard then
+        shows its own "restarting" state and reconnects when we come back.
+        """
+
+        async def restart() -> None:
+            await asyncio.sleep(RESTART_GRACE_S)
+            try:
+                await client.restart()
+            except Exception:
+                # Nothing is left to answer to: the reply went out long ago.
+                logger.exception("Add-on restart failed")
+
+        task = asyncio.get_running_loop().create_task(restart())
+        # A task nothing holds can be collected before it runs.
+        self._pending_restarts.add(task)
+        task.add_done_callback(self._pending_restarts.discard)
+
+    async def _handle_addon_restart(self, request):
+        client, error = self._supervisor(request)
+        if error:
+            return error
+        logger.info("Add-on restart requested by %s", self._actor(request))
+        self._restart_after_response(client)
+        return _json({"restarting": True}, status=202)
+
+    async def _handle_config_mode_post(self, request):
+        """Switch between add-on options and a custom ``config.ini``.
+
+        Simple → file materialises the config the add-on just generated into
+        the shared config dir, so the user starts from what is actually
+        running rather than a blank file.
+        """
+        client, error = self._supervisor(request)
+        if error:
+            return error
+        try:
+            body = await request.json()
+            target = body["mode"]
+        except (KeyError, TypeError, json.JSONDecodeError) as exc:
+            return _json({"error": f"Invalid request: {exc}"}, status=400)
+
+        from astrameter.status.config_mode import materialize_config
+
+        if target == "file":
+            filename = (body.get("filename") or "astrameter.ini").strip()
+            try:
+                materialize_config(self.status.app_config, filename)
+            except ValueError as exc:
+                # A filename the user chose that target_path refuses.
+                return _json({"error": str(exc)}, status=400)
+            except OSError as exc:
+                return _json({"error": f"Cannot write config file: {exc}"}, status=500)
+            options = {"custom_config": filename}
+        elif target == "options":
+            options = {"custom_config": ""}
+        else:
+            return _json({"error": "mode must be 'file' or 'options'"}, status=400)
+
+        try:
+            info = await client.get_info()
+            merged = {**(info.get("options") or {}), **options}
+            await client.set_options(merged)
+        except Exception as exc:
+            return _json({"error": str(exc)}, status=400)
+        logger.info(
+            "Configuration mode switched to %r by %s", target, self._actor(request)
+        )
+        self._restart_after_response(client)
+        return _json({"switched": True, "mode": target, "restart": "supervisor"})
+
+    # -- config.ini editor ---------------------------------------------
+
     async def _handle_config_ui(self, request):
         """Serve the HTML configuration editor at GET /config."""
+        if not self._trusted(request) and self.status is not None:
+            return _json({"error": "Forbidden"}, status=403)
         from astrameter.web_config import CONFIG_EDITOR_HTML
 
         return web.Response(
@@ -125,6 +1004,8 @@ class WebServer:
 
     async def _handle_api_key_types(self, request):
         """Return the section key-type metadata as JSON at GET /api/key-types."""
+        if not self._trusted(request) and self.status is not None:
+            return _json({"error": "Forbidden"}, status=403)
         from astrameter.web_config import section_key_types_json
 
         return web.Response(
@@ -133,44 +1014,53 @@ class WebServer:
             headers={"Cache-Control": "max-age=3600"},
         )
 
+    def _config_write_blocked(self, request):
+        """Why a config.ini write is refused, or None when it is allowed."""
+        if self.status is None:
+            return None if self.serve_config_editor else "Forbidden"
+        if not self._may_write(request):
+            return "Forbidden"
+        if self.status.config_mode == HA_SIMPLE:
+            return (
+                "This add-on regenerates config.ini on every start, so an edit "
+                "here would be lost. Change the add-on options instead."
+            )
+        return None
+
     async def _handle_api_config_get(self, request):
         """Return the current config.ini contents as JSON at GET /api/config."""
-        from astrameter.web_config import config_to_json
+        if not self._trusted(request) and self.status is not None:
+            return _json({"error": "Forbidden"}, status=403)
+        from astrameter.web_config import read_config_as_dict
 
         if not self.config_path:
-            return web.Response(
-                body=json.dumps({"error": "Config path not set"}).encode(),
-                status=500,
-                content_type="application/json",
-            )
+            return _json({"error": "Config path not set"}, status=500)
         try:
-            payload = config_to_json(self.config_path)
-            return web.Response(
-                body=payload.encode("utf-8"),
-                content_type="application/json",
-                headers={"Cache-Control": "no-cache"},
+            sections, order = read_config_as_dict(self.config_path)
+            return _json(
+                {"sections": redact_sections(sections), "order": order},
+                **{"Cache-Control": "no-store"},
             )
         except Exception:
             logger.exception("Error reading config")
-            return web.Response(
-                body=json.dumps({"error": "Internal server error"}).encode(),
-                status=500,
-                content_type="application/json",
-            )
+            return _json({"error": "Internal server error"}, status=500)
 
     async def _handle_api_config_post(self, request):
         """Write updated config sections from the JSON body at POST /api/config."""
         import shutil
         import tempfile
 
-        from astrameter.web_config import validate_config, write_config_from_dict
+        from astrameter.web_config import (
+            read_config_as_dict,
+            validate_config,
+            write_config_from_dict,
+        )
 
+        blocked = self._config_write_blocked(request)
+        if blocked:
+            return _json({"error": blocked}, status=403)
         if not self.config_path:
-            return web.Response(
-                body=json.dumps({"error": "Config path not set"}).encode(),
-                status=500,
-                content_type="application/json",
-            )
+            return _json({"error": "Config path not set"}, status=500)
         try:
             data = await request.json()
             if not isinstance(data, dict):
@@ -181,6 +1071,10 @@ class WebServer:
             order = data.get("order", list(sections.keys()))
             if not isinstance(order, list):
                 raise ValueError("'order' must be a list")
+            # A value still equal to the sentinel means "keep what is
+            # stored", so a redacted secret is never written back as bullets.
+            current, _ = read_config_as_dict(self.config_path)
+            sections = restore_sections(sections, current)
             # Write to a temp copy and validate before touching the live file.
             dir_name = os.path.dirname(self.config_path) or "."
             with tempfile.NamedTemporaryFile(
@@ -197,47 +1091,30 @@ class WebServer:
                 raise
             os.unlink(tmp_path)
             write_config_from_dict(self.config_path, sections, order)
-            logger.info("Configuration updated via web UI")
-            return web.Response(
-                body=json.dumps({"success": True}).encode(),
-                content_type="application/json",
-            )
+            logger.info("Configuration updated by %s", self._actor(request))
+            return _json({"success": True})
         except (ValueError, json.JSONDecodeError) as e:
             logger.error("Invalid config request: %s", e)
-            return web.Response(
-                body=json.dumps({"error": str(e)}).encode(),
-                status=400,
-                content_type="application/json",
-            )
+            return _json({"error": str(e)}, status=400)
         except Exception:
             logger.exception("Error saving config")
-            return web.Response(
-                body=json.dumps({"error": "Internal server error"}).encode(),
-                status=500,
-                content_type="application/json",
-            )
+            return _json({"error": "Internal server error"}, status=500)
 
     async def _handle_api_restart(self, request):
         """Acknowledge POST /api/restart and schedule an in-process restart via SIGUSR1."""
         import signal
 
-        response = web.Response(
-            body=json.dumps(
-                {"success": True, "message": "Service is restarting..."}
-            ).encode(),
-            content_type="application/json",
-        )
-        logger.info("Restart requested via web UI")
-        # Send SIGUSR1 so the handler in main.py sets restart_requested=True
-        # before raising KeyboardInterrupt, causing the outer loop to reload
-        # the config and re-run instead of exiting.
+        if self.status is not None and not self._may_write(request):
+            return _json({"error": "Forbidden"}, status=403)
+        logger.info("Restart requested by %s", self._actor(request))
+        if self.status is not None:
+            self.status.restart_pending = True
+            self.status.bump()
+        # SIGUSR1 so the handler in main.py restarts the device cycle instead
+        # of exiting.  The web server itself survives it.
         threading.Timer(0.5, lambda: os.kill(os.getpid(), signal.SIGUSR1)).start()
-        return response
+        return _json({"restarting": True}, status=202)
 
     async def _handle_not_found(self, request):
         """Return a 404 JSON response for any unmatched route."""
-        return web.Response(
-            body=b'{"error": "Not Found"}',
-            status=404,
-            content_type="application/json",
-        )
+        return _json({"error": "Not Found"}, status=404)

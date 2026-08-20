@@ -11,12 +11,14 @@ import time
 from unittest.mock import AsyncMock
 
 import aiomqtt
+import pytest
 
 from astrameter.config.config_loader import (
     create_powermeter,
     read_mqtt_insights_config,
 )
 from astrameter.conftest import needs_mosquitto
+from astrameter.ct002.balancer import CONTROL_QUALITY_STATES
 from astrameter.powermeter.base import Powermeter
 from astrameter.powermeter.wrappers.health import HealthTrackingPowermeter
 
@@ -26,12 +28,14 @@ from .discovery import (
     build_ct002_consumer_discovery,
     build_ct002_device_discovery,
     build_powermeter_device_discovery,
+    build_retirement_payload,
     build_shelly_battery_discovery,
     build_shelly_device_discovery,
 )
 from .marstek_mqtt import MarstekMqttBinding
 from .service import (
     POWERMETER_IDLE_THRESHOLD,
+    QUEUE_MAX_SIZE,
     MqttInsightsConfig,
     MqttInsightsService,
 )
@@ -92,8 +96,11 @@ def test_ct002_consumer_discovery_structure():
     assert "battery_ip" in comps
     assert "ct_type" in comps
     assert "ct_mac" in comps
-    assert "last_seen" in comps
     assert "poll_interval" in comps
+    # No Last Seen entity: it changed on every poll and, being a timestamp
+    # sensor, HA's logbook could not treat it as continuous, so every poll
+    # became a logbook row (issue #576).
+    assert "last_seen" not in comps
 
     # Poll interval sensor
     poll = comps["poll_interval"]
@@ -104,6 +111,11 @@ def test_ct002_consumer_discovery_structure():
 
     # Primary entity has name: null
     assert comps["grid_power_total"]["name"] is None
+
+    # The phase enum lists every phase a consumer payload can carry, including
+    # "D" (combined / whole-home mode); a missing option makes Home Assistant
+    # discard the state and log "Ignoring invalid option" (issue #580).
+    assert comps["phase"]["options"] == ["A", "B", "C", "D"]
 
     # Power sensors carry state_class measurement so they are usable as
     # power source entities in the Home Assistant energy dashboard.
@@ -267,6 +279,41 @@ def test_ct002_device_discovery_structure():
     assert ac["retain"] is True
     assert ac["entity_category"] == "config"
 
+    # Control quality — the verdict as an enum sensor whose options match the
+    # tracker's vocabulary exactly (HA drops a state outside them), plus a
+    # trendable score.
+    cq = comps["control_quality"]
+    assert cq["platform"] == "sensor"
+    assert cq["device_class"] == "enum"
+    assert set(cq["options"]) == set(CONTROL_QUALITY_STATES)
+    assert cq["value_template"] == "{{ value_json.control_quality }}"
+    assert cq["entity_category"] == "diagnostic"
+    score = comps["control_quality_score"]
+    assert score["unit_of_measurement"] == "%"
+    assert score["state_class"] == "measurement"
+    assert score["entity_category"] == "diagnostic"
+    # The evidence behind the verdict travels with it: the verdict names no
+    # cause, so an MQTT-only user has nothing to act on without these.
+    err = comps["control_quality_error"]
+    assert err["device_class"] == "power"
+    assert err["unit_of_measurement"] == "W"
+    band = comps["control_quality_in_band"]
+    assert band["unit_of_measurement"] == "%"
+    crossings = comps["control_quality_crossings"]
+    assert crossings["unit_of_measurement"] == "/min"
+    for evidence in (err, band, crossings):
+        assert evidence["platform"] == "sensor"
+        assert evidence["state_class"] == "measurement"
+        assert evidence["entity_category"] == "diagnostic"
+        # Same absence rule as the score — never the string "None".
+        assert "is not none" in evidence["value_template"]
+        assert "'unknown'" in evidence["value_template"]
+    # The score is null until the loop has been observed; the template has to
+    # turn that into HA's "unknown" rather than the string "None", or a
+    # "score below X" automation fires on an absent reading.
+    assert "control_quality_score is not none" in score["value_template"]
+    assert "'unknown'" in score["value_template"]
+
     # Force rotation button
     btn = comps["force_rotation"]
     assert btn["platform"] == "button"
@@ -334,8 +381,8 @@ def test_shelly_battery_discovery_structure():
     comps = payload["components"]
     assert "grid_power_total" in comps
     assert "active" in comps
-    assert "last_seen" in comps
     assert "poll_interval" in comps
+    assert "last_seen" not in comps  # issue #576
     for power_key in (
         "grid_power_total",
         "grid_power_l1",
@@ -349,6 +396,38 @@ def test_shelly_battery_discovery_structure():
     assert poll["unit_of_measurement"] == "s"
     assert payload["availability_mode"] == "all"
     assert len(payload["availability"]) == 2
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        lambda: build_ct002_consumer_discovery(
+            "astrameter", "dev1", "aabbccddeeff", "homeassistant", device_type="HMJ-2"
+        ),
+        lambda: build_shelly_battery_discovery(
+            "astrameter", "shelly1", "192.168.1.100", "homeassistant"
+        ),
+    ],
+    ids=["ct002_consumer", "shelly_battery"],
+)
+def test_retirement_payload_removes_retired_entities(build):
+    """The retirement variant deletes dropped entities, keeps the rest intact."""
+    _topic, payload = build()
+    retirement = build_retirement_payload(payload)
+
+    # A component config that is empty apart from ``platform`` is how HA is
+    # told to remove an entity — anything else and it would be re-created.
+    assert retirement["components"]["last_seen"] == {"platform": "sensor"}
+    # Every other component, and the rest of the payload, is unchanged: the
+    # retirement update is a normal discovery payload, so it must not drop the
+    # device, origin or availability blocks.
+    for key, comp in payload["components"].items():
+        assert retirement["components"][key] == comp
+    assert retirement["device"] == payload["device"]
+    assert retirement["origin"] == payload["origin"]
+    assert retirement["availability"] == payload["availability"]
+    # The source payload keeps its own components map.
+    assert "last_seen" not in payload["components"]
 
 
 def test_shelly_device_discovery_structure():
@@ -694,6 +773,21 @@ def test_queue_overflow_does_not_raise():
     # No exception raised
 
 
+def test_queue_dropped_counter():
+    """Every drop-oldest overflow is counted, so the dashboard can show that
+    events were lost rather than silently under-reporting."""
+    service = MqttInsightsService(MqttInsightsConfig(broker="localhost"))
+    for i in range(QUEUE_MAX_SIZE):
+        service.on_ct002_response("dev1", f"consumer{i}", {})
+    assert service.status_snapshot().queue_dropped_total == 0
+
+    for i in range(5):
+        service.on_ct002_response("dev1", f"overflow{i}", {})
+    snapshot = service.status_snapshot()
+    assert snapshot.queue_dropped_total == 5
+    assert snapshot.queue_depth == QUEUE_MAX_SIZE
+
+
 # ── Powermeter health loop (no broker) ───────────────────────────────────
 
 
@@ -990,6 +1084,12 @@ SAMPLE_CT002_DATA = {
     "smooth_target": 500.0,
     "active_control": True,
     "consumer_count": 2,
+    "control_quality": "off_target",
+    "control_quality_score": 41.5,
+    "control_quality_error_w": 214.0,
+    "control_quality_in_band_pct": 11.0,
+    "control_quality_crossings_per_min": 3.4,
+    "control_quality_band_w": 25.0,
 }
 
 SAMPLE_SHELLY_DATA = {
@@ -1055,6 +1155,53 @@ async def test_publishes_device_status(mqtt_broker):
         assert payload["smooth_target"] == 500.0
         assert payload["active_control"] is True
         assert payload["consumer_count"] == 2
+        assert payload["control_quality"] == "off_target"
+        assert payload["control_quality_score"] == 41.5
+        assert payload["control_quality_error_w"] == 214.0
+        assert payload["control_quality_in_band_pct"] == 11.0
+        assert payload["control_quality_crossings_per_min"] == 3.4
+        assert payload["control_quality_band_w"] == 25.0
+    finally:
+        await service.stop()
+
+
+@needs_mosquitto
+async def test_device_status_defaults_control_quality_when_absent(mqtt_broker):
+    """An event from an older/reduced producer must not break the entity.
+
+    HA's enum sensor rejects a state outside its ``options``, so the fallback
+    has to be one of the documented verdicts rather than an empty string.
+    """
+    port = mqtt_broker
+    service = _make_service(port)
+    base = service._config.base_topic
+    await service.start()
+
+    try:
+        await service.wait_connected()
+
+        received = []
+        data = {
+            k: v
+            for k, v in SAMPLE_CT002_DATA.items()
+            if not k.startswith("control_quality")
+        }
+        async with aiomqtt.Client(hostname="127.0.0.1", port=port) as sub:
+            await sub.subscribe(f"{base}/ct002/+/status")
+            service.on_ct002_response("dev1", "consumer1", data)
+            await _collect_messages(sub, received)
+
+        payload = json.loads(received[0].payload)
+        assert payload["control_quality"] == "idle"
+        # Null rather than 0: an absent reading must not read as "as bad as it
+        # gets" (or as a perfectly held grid) on a graphed, alertable sensor.
+        for key in (
+            "control_quality_score",
+            "control_quality_error_w",
+            "control_quality_in_band_pct",
+            "control_quality_crossings_per_min",
+        ):
+            assert payload[key] is None, key
     finally:
         await service.stop()
 
@@ -1084,13 +1231,15 @@ async def test_publishes_ha_discovery_on_first_event(mqtt_broker):
                 sub,
                 discovery_msgs,
                 timeout=3,
-                stop=lambda _: len(discovery_msgs) >= 4,
+                stop=lambda _: len(discovery_msgs) >= 6,
             )
 
         # Expect: AstraMeter hub device (retained, now always published on
         # connect with a base-topic fallback id) + CT002 device discovery +
-        # consumer1 + consumer2 = 4 (no duplicate for the second consumer1 event)
-        assert len(discovery_msgs) == 4
+        # two publishes each for consumer1 and consumer2 (the retirement update
+        # for entities dropped in an upgrade, then the current payload) = 6 (no
+        # duplicate for the second consumer1 event)
+        assert len(discovery_msgs) == 6
         topics = [str(m.topic) for m in discovery_msgs]
         # Hub device discovery (retained, delivered on subscribe)
         assert any("astrameter_addon_" in t for t in topics)
@@ -1099,6 +1248,19 @@ async def test_publishes_ha_discovery_on_first_event(mqtt_broker):
         # Consumer-level discoveries
         assert any("consumer1" in t for t in topics)
         assert any("consumer2" in t for t in topics)
+
+        # Each consumer gets the retirement update first and the current
+        # payload second, so the retained message the broker keeps — the one a
+        # restarting HA replays — is the one without the retired entity.
+        for consumer in ("consumer1", "consumer2"):
+            payloads = [
+                json.loads(m.payload)
+                for m in discovery_msgs
+                if consumer in str(m.topic)
+            ]
+            assert len(payloads) == 2
+            assert payloads[0]["components"]["last_seen"] == {"platform": "sensor"}
+            assert "last_seen" not in payloads[1]["components"]
     finally:
         await service.stop()
 
@@ -2133,3 +2295,196 @@ async def test_marstek_slow_handler_does_not_stall_listener(mqtt_broker):
     finally:
         slow_gate.set()
         await service.stop()
+
+
+# ── Status snapshot & dashboard writes (no broker) ───────────────────────
+
+
+def _async_iter(messages):
+    async def _gen():
+        for message in messages:
+            yield message
+
+    return _gen()
+
+
+class _FakeMessage:
+    def __init__(self, topic: str, payload: bytes) -> None:
+        self.topic = topic
+        self.payload = payload
+
+
+def test_status_snapshot_shape():
+    service = MqttInsightsService(
+        MqttInsightsConfig(
+            broker="broker.local",
+            port=8883,
+            tls=True,
+            base_topic="am",
+            ha_discovery_prefix="ha",
+            addon_slug="34dea19a_astrameter",
+            powermeter_health_interval=30.0,
+            marstek_mqtt_interval=120.0,
+        )
+    )
+    service._discovered_ct002_devices.add("dev1")
+    service._discovered_ct002_consumers.update({"dev1/c1", "dev1/c2"})
+    service._discovered_shelly_devices.add("shelly1")
+    service._discovered_shelly_batteries.add("shelly1/192_168_1_5")
+    service._discovered_powermeters.add("MQTT_1")
+
+    snapshot = service.status_snapshot()
+
+    assert snapshot.connected is False
+    assert (snapshot.broker, snapshot.port, snapshot.tls) == (
+        "broker.local",
+        8883,
+        True,
+    )
+    assert snapshot.base_topic == "am"
+    assert snapshot.ha_discovery is True
+    assert snapshot.ha_discovery_prefix == "ha"
+    assert snapshot.hub_identifier == "34dea19a_astrameter"
+    assert snapshot.queue_depth == 0
+    assert snapshot.queue_dropped_total == 0
+    assert snapshot.discovered_ct002_devices == 1
+    assert snapshot.discovered_ct002_consumers == 2
+    assert snapshot.discovered_shelly_devices == 1
+    assert snapshot.discovered_shelly_batteries == 1
+    assert snapshot.discovered_powermeters == 1
+    assert snapshot.powermeter_health_interval == 30.0
+    assert snapshot.marstek_enabled is True
+    assert snapshot.marstek_interval == 120.0
+    assert snapshot.marstek_bindings == ()
+
+
+def test_status_snapshot_connected_tracks_the_connected_flag():
+    service = MqttInsightsService(MqttInsightsConfig(broker="localhost"))
+    assert service.connected is False
+    service._connected.set()
+    assert service.connected is True
+    assert service.status_snapshot().connected is True
+
+
+def test_status_snapshot_carries_no_credentials():
+    service = MqttInsightsService(
+        MqttInsightsConfig(
+            broker="broker.local", username="grid-user", password="s3cret"
+        )
+    )
+    snapshot = service.status_snapshot()
+
+    assert not hasattr(snapshot, "username")
+    assert not hasattr(snapshot, "password")
+    # repr covers the nested binding rows too.
+    rendered = repr(snapshot)
+    assert "grid-user" not in rendered
+    assert "s3cret" not in rendered
+
+
+async def test_status_snapshot_reports_marstek_bindings():
+    service = MqttInsightsService(MqttInsightsConfig(broker="localhost"))
+    binding, _ = _make_binding()
+    await service.register_marstek(binding)
+    service._marstek_get_values_failed.add(binding.device_id)
+
+    (row,) = service.status_snapshot().marstek_bindings
+    assert row.device_id == "ct002-dev1"
+    assert row.ct_type == "HME-4"
+    assert row.mac == "02b250aabbcc"
+    assert row.ver_v == binding.ver_v
+    assert row.wifi_rssi == -50
+    assert row.poll_in_flight is False
+    assert row.value_fetch_failing is True
+
+
+async def test_status_snapshot_no_lock():
+    """The snapshot must read the bindings without ``_marstek_lock`` — taking
+    it would need an await, and an await tears the surrounding snapshot."""
+    service = MqttInsightsService(MqttInsightsConfig(broker="localhost"))
+    binding, _ = _make_binding()
+    await service.register_marstek(binding)
+
+    async with service._marstek_lock:
+        snapshot = service.status_snapshot()
+
+    assert [row.device_id for row in snapshot.marstek_bindings] == ["ct002-dev1"]
+
+
+async def test_publish_consumer_command_lands_where_the_replay_path_reads():
+    """A dashboard write must target the same retained topic the broker
+    redelivers on reconnect, or the next reconnect reverts it."""
+    service = MqttInsightsService(
+        MqttInsightsConfig(broker="localhost", base_topic="am")
+    )
+    service._client = AsyncMock()
+
+    await service.publish_consumer_command("dev1", "c1", "manual_target", "150")
+
+    call = service._client.publish.call_args
+    assert call.args[0] == "am/ct002/dev1/consumer/c1/manual_target/set"
+    assert call.kwargs["retain"] is True
+
+    # Feed the published message back through the listener that receives the
+    # retained redelivery: it must reach the manual-target handler.
+    calls: list[tuple[str, float]] = []
+    service.register_manual_target_handler(
+        "dev1", lambda cid, v: calls.append((cid, v))
+    )
+    listener = AsyncMock()
+    listener.messages = _async_iter(
+        [_FakeMessage(call.args[0], call.kwargs["payload"])]
+    )
+    await service._listen_commands(listener)
+
+    assert calls == [("c1", 150.0)]
+
+
+async def test_publish_consumer_command_accepts_the_native_scalars_it_is_given():
+    """The dashboard hands this the JSON value it received — a float or a
+    bool, not a string. Requiring a string made every mirrored write raise
+    inside the caller's ``except Exception``, so nothing was ever published
+    and the retained topic silently kept the old value."""
+    service = MqttInsightsService(
+        MqttInsightsConfig(broker="localhost", base_topic="am")
+    )
+    service._client = AsyncMock()
+
+    await service.publish_consumer_command("dev1", "c1", "manual_target", -450.0)
+    assert service._client.publish.call_args.kwargs["payload"] == b"-450.0"
+
+    await service.publish_consumer_command("dev1", "c1", "active", False)
+    payload = service._client.publish.call_args.kwargs["payload"]
+    # The reader lower-cases before parsing, so "False" round-trips.
+    assert MqttInsightsService._parse_bool(payload.decode()) is False
+
+
+async def test_publish_device_command_lands_where_the_listener_reads():
+    service = MqttInsightsService(
+        MqttInsightsConfig(broker="localhost", base_topic="am")
+    )
+    service._client = AsyncMock()
+
+    await service.publish_device_command("dev1", {"active_control": False})
+
+    call = service._client.publish.call_args
+    assert call.args[0] == "am/ct002/dev1/set"
+    assert call.kwargs["retain"] is True
+
+    seen: list[bool] = []
+    service.register_active_control_handler("dev1", seen.append)
+    listener = AsyncMock()
+    listener.messages = _async_iter(
+        [_FakeMessage(call.args[0], call.kwargs["payload"])]
+    )
+    await service._listen_commands(listener)
+
+    assert seen == [False]
+
+
+async def test_publish_command_without_a_connection_raises():
+    service = MqttInsightsService(MqttInsightsConfig(broker="localhost"))
+    with pytest.raises(RuntimeError):
+        await service.publish_device_command("dev1", {"force_rotation": True})
+    with pytest.raises(RuntimeError):
+        await service.publish_consumer_command("dev1", "c1", "active", "true")

@@ -10,6 +10,7 @@ from astrameter.config.config_loader import (
     create_client_filter,
     create_emlog_powermeter,
     create_esphome_powermeter,
+    create_esphomenative_powermeter,
     create_fritz_powermeter,
     create_fronius_powermeter,
     create_homeassistant_powermeter,
@@ -19,6 +20,7 @@ from astrameter.config.config_loader import (
     create_modbus_powermeter,
     create_mqtt_powermeter,
     create_powermeter,
+    create_refoss_powermeter,
     create_script_powermeter,
     create_shelly_powermeter,
     create_shrdzm_powermeter,
@@ -244,6 +246,35 @@ def test_create_esphome_powermeter():
     except Exception as e:
         if "Connection" not in str(e):  # Ignore expected connection errors
             raise
+
+
+async def test_create_esphomenative_powermeter():
+    """Test ESPHome native API powermeter creation (reads all keys)."""
+    config = configparser.ConfigParser()
+    config["ESPHOMENATIVE"] = {
+        "ADDRESS": "device.local",
+        "PORT": "6054",
+        "API_KEY": "5BqtR16i91/+rwUl+QrJewKFOnyS/whHc3v9ySSKpb8=",
+        "OBJECT_ID": "grid_power",
+        "CLIENT_INFO": "MyClient",
+    }
+    pm = create_esphomenative_powermeter("ESPHOMENATIVE", config)
+    assert pm.address == "device.local"
+    assert pm.port == 6054
+    assert pm.object_id == "grid_power"
+
+
+async def test_create_esphomenative_powermeter_defaults():
+    """PORT defaults to 6053 and CLIENT_INFO to AstraMeter."""
+    config = configparser.ConfigParser()
+    config["ESPHOMENATIVE"] = {
+        "ADDRESS": "device.local",
+        "API_KEY": "key",
+        "OBJECT_ID": "grid_power",
+    }
+    pm = create_esphomenative_powermeter("ESPHOMENATIVE", config)
+    assert pm.port == 6053
+    assert pm.object_id == "grid_power"
 
 
 def test_create_amisreader_powermeter():
@@ -517,6 +548,19 @@ def test_create_fronius_powermeter():
     assert pm.per_phase is True
 
 
+def test_create_refoss_powermeter():
+    """Test Refoss/Meross powermeter creation and CHANNELS parsing."""
+    config = configparser.ConfigParser()
+    config["REFOSS"] = {"IP": "192.168.1.150"}
+    pm = create_refoss_powermeter("REFOSS", config)
+    assert pm.ip == "192.168.1.150"
+    assert pm.channels == [1]
+
+    config["MEROSS"] = {"IP": "192.168.1.150", "CHANNELS": "1,2,3"}
+    pm = create_refoss_powermeter("MEROSS", config)
+    assert pm.channels == [1, 2, 3]
+
+
 def test_create_tibber_pulse_powermeter():
     """Test Tibber Pulse powermeter creation, defaults, and OBIS overrides."""
     config = configparser.ConfigParser()
@@ -526,17 +570,20 @@ def test_create_tibber_pulse_powermeter():
     assert pm.password == "AD56-54BA"
     assert pm.node_id == "1"
     assert pm.user == "admin"
+    assert pm.timeout == 5.0
 
     config["TIBBER_PULSE_2"] = {
         "IP": "127.0.0.1",
         "PASSWORD": "pw",
         "NODE_ID": "2",
         "USER": "root",
+        "TIMEOUT": "10",
         "OBIS_POWER_CURRENT": "0100100700ff",
     }
     pm = create_tibber_pulse_powermeter("TIBBER_PULSE_2", config)
     assert pm.node_id == "2"
     assert pm.user == "root"
+    assert pm.timeout == 10.0
     assert pm._obis_current == "0100100700ff"
 
 
@@ -601,6 +648,8 @@ def test_create_powermeter():
         "AIN": "12345 0123456",
     }
     config["FRONIUS_TEST"] = {"IP": "127.0.0.1"}
+    config["REFOSS_TEST"] = {"IP": "127.0.0.1", "CHANNELS": "1"}
+    config["MEROSS_TEST"] = {"IP": "127.0.0.1", "CHANNELS": "1,2,3"}
     config["TIBBER_PULSE_TEST"] = {"IP": "127.0.0.1", "PASSWORD": "pw"}
     config["UNKNOWN_TEST"] = {"SOME_KEY": "some_value"}
 

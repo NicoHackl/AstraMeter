@@ -210,6 +210,115 @@ void SaturationTracker::clear(BalancerConsumerState &state) {
 }
 
 // -------------------------------------------------------------------------
+// ControlQualityTracker
+// -------------------------------------------------------------------------
+
+ControlQualityTracker::ControlQualityTracker(float band, std::function<double()> clock)
+    : clock_(std::move(clock)), band_(std::max(CONTROL_QUALITY_MIN_BAND_W, band)) {}
+
+void ControlQualityTracker::update(float grid, bool steering, bool limited) {
+  const double now = this->clock_();
+  double prev_t = this->last_update_;
+  if (prev_t <= 0.0) prev_t = now - CONTROL_QUALITY_REFERENCE_DT;
+  const double dt = std::max(0.0, now - prev_t);
+  this->last_update_ = now;
+  this->steering_ = steering;
+  if (dt == 0.0) return;
+  if (dt > CONTROL_QUALITY_LONG_GAP_SECONDS) {
+    // The pool was away long enough that the old window describes a different
+    // house. Start over rather than blending across the gap.
+    this->reset_window_();
+    return;
+  }
+  // Nothing is being steered, so the meter is not evidence about a loop.
+  if (!steering) return;
+
+  const double error = std::fabs(static_cast<double>(grid));
+  const double in_band = (error <= static_cast<double>(this->band_)) ? 1.0 : 0.0;
+  const double limit_hit = limited ? 1.0 : 0.0;
+  if (this->samples_ == 0) {
+    // Seed from the first sample: a cold EMA reads as a perfectly held grid,
+    // which would report "stable" for the first minute of a loop that is not.
+    this->error_ema_ = error;
+    this->in_band_ema_ = in_band;
+    this->limited_ema_ = limit_hit;
+  } else {
+    const double ratio = dt / CONTROL_QUALITY_REFERENCE_DT;
+    const double alpha = 1.0 - std::pow(1.0 - CONTROL_QUALITY_ALPHA, ratio);
+    this->error_ema_ += alpha * (error - this->error_ema_);
+    this->in_band_ema_ += alpha * (in_band - this->in_band_ema_);
+    this->limited_ema_ += alpha * (limit_hit - this->limited_ema_);
+    // Crossings per second (not per sample, which would track the poll
+    // cadence), counted only between excursions large enough to matter — a
+    // jittery meter crosses zero constantly at small amplitude. See
+    // balancer.py.
+    double flips_per_second = 0.0;
+    if (error > static_cast<double>(this->band_) * CONTROL_QUALITY_STABLE_BANDS) {
+      const int sign = (grid > 0.0f) ? 1 : -1;
+      if (this->last_sign_ != 0 && sign != this->last_sign_) flips_per_second = 1.0 / dt;
+      this->last_sign_ = sign;
+    }
+    this->crossings_ema_ += alpha * (flips_per_second - this->crossings_ema_);
+  }
+  this->samples_++;
+  this->observed_ += dt;
+}
+
+ControlQualitySnapshot ControlQualityTracker::snapshot() const {
+  ControlQualitySnapshot snap;
+  snap.verdict = this->verdict_();
+  snap.score = this->score_();
+  snap.error_ema = this->error_ema_;
+  snap.in_band_fraction = this->in_band_ema_;
+  snap.crossings_per_second = this->crossings_ema_;
+  snap.band = this->band_;
+  snap.samples = this->samples_;
+  snap.has_score = this->has_evidence_();
+  return snap;
+}
+
+void ControlQualityTracker::reset_window_() {
+  this->error_ema_ = 0.0;
+  this->in_band_ema_ = 0.0;
+  this->crossings_ema_ = 0.0;
+  this->limited_ema_ = 0.0;
+  this->last_sign_ = 0;
+  this->samples_ = 0;
+  this->observed_ = 0.0;
+}
+
+bool ControlQualityTracker::has_evidence_() const {
+  return this->steering_ && !this->stale_() &&
+         this->observed_ >= CONTROL_QUALITY_WARMUP_SECONDS;
+}
+
+bool ControlQualityTracker::stale_() const {
+  // A device whose batteries all went away stops calling update() entirely,
+  // so without this the last verdict would hang around describing a pool that
+  // no longer exists.
+  if (this->last_update_ <= 0.0) return true;
+  return (this->clock_() - this->last_update_) > CONTROL_QUALITY_LONG_GAP_SECONDS;
+}
+
+std::string ControlQualityTracker::verdict_() const {
+  if (!this->steering_ || this->stale_()) return "idle";
+  if (this->observed_ < CONTROL_QUALITY_WARMUP_SECONDS) return "warmup";
+  if (this->error_ema_ <= static_cast<double>(this->band_) * CONTROL_QUALITY_STABLE_BANDS)
+    return "stable";
+  if (this->limited_ema_ >= CONTROL_QUALITY_LIMITED_SHARE) return "limited";
+  return "off_target";
+}
+
+double ControlQualityTracker::score_() const {
+  const double excess = std::max(0.0, this->error_ema_ - static_cast<double>(this->band_));
+  const double accuracy =
+      std::max(0.0, 1.0 - excess / (static_cast<double>(this->band_) * CONTROL_QUALITY_ERROR_SCALE));
+  // Accuracy alone: discounting for a high crossing rate penalised a noisy
+  // meter far harder than a badly steered loop. See balancer.py.
+  return 100.0 * accuracy;
+}
+
+// -------------------------------------------------------------------------
 // LoadBalancer
 // -------------------------------------------------------------------------
 
@@ -228,7 +337,10 @@ LoadBalancer::LoadBalancer(BalancerConfig config, double saturation_alpha,
       reset_fn_(std::move(reset_fn)),
       last_rotation_(this->clock_()),
       probe_timeout_seconds_(std::max(0.0f, saturation_grace_seconds)),
-      probe_success_threshold_(std::max(1.0f, saturation_min_target)) {
+      probe_success_threshold_(std::max(1.0f, saturation_min_target)),
+      // The tracker floors the band at CONTROL_QUALITY_MIN_BAND_W, so it does
+      // not matter that cfg_.clamp() has not run yet.
+      control_quality_(config.balance_deadband, [this]() { return this->clock_(); }) {
   this->cfg_.clamp();
 }
 
@@ -575,7 +687,7 @@ std::array<float, 3> LoadBalancer::steer_to_zero_(
     }
   }
   float reading = to_grid_reading(NetOutputW(0.0f), reported);
-  if (paced && consumer_id) reading = this->pace_reading_(*consumer_id, reading, reported);
+  if (paced && consumer_id) reading = this->pace_reading_(*consumer_id, reading, reported, reports);
   if (consumer_id) {
     auto &stz_state = this->get_consumer_(*consumer_id);
     stz_state.last_target = paced ? reading : 0.0f;
@@ -709,6 +821,9 @@ void LoadBalancer::reset_consumer(const std::string &consumer_id) {
   state.pace_sign = 0;
   state.pace_prev_reported.reset();
   state.pace_last_at = 0.0;
+  state.pace_stall_polls = 0;
+  state.pace_responded_at = 0.0f;
+  state.pace_last_sent = 0.0f;
   state.osc_score = 0.0f;
   state.osc_last_sign = 0;
   state.saturation_score = 0.0;
@@ -767,6 +882,63 @@ std::optional<float> LoadBalancer::get_last_intent(const std::string &consumer_i
   return (it != this->consumers_.end()) ? it->second.last_intent : std::optional<float>{};
 }
 
+// Mirrors balancer.py LoadBalancer.snapshot_consumer.
+std::optional<BalancerConsumerSnapshot> LoadBalancer::snapshot_consumer(
+    const std::string &consumer_id) const {
+  auto it = this->consumers_.find(consumer_id);
+  if (it == this->consumers_.end()) return {};
+  const BalancerConsumerState &state = it->second;
+  double grace_remaining = 0.0;
+  if (state.saturation_grace_until > 0.0)
+    grace_remaining = std::max(0.0, state.saturation_grace_until - this->clock_());
+  BalancerConsumerSnapshot out;
+  out.last_target = state.last_target;
+  out.last_intent = state.last_intent;
+  out.last_intent_reading = state.last_intent_reading;
+  out.saturation = state.saturation_score;
+  out.saturation_grace_remaining = grace_remaining;
+  out.fade_weight = state.fade_weight;
+  out.deprioritized = this->deprioritized_.count(consumer_id) > 0;
+  out.pace_cap = state.pace_cap;
+  out.pace_sign = state.pace_sign;
+  out.osc_score = state.osc_score;
+  out.osc_last_sign = state.osc_last_sign;
+  return out;
+}
+
+// Mirrors balancer.py LoadBalancer.status_snapshot.
+BalancerSnapshot LoadBalancer::status_snapshot() const {
+  const double now = this->clock_();
+  BalancerSnapshot out;
+  out.efficiency_rotation_enabled = this->efficiency_rotation_enabled();
+  out.predictor.grid_estimate = this->pred_grid_;
+  out.predictor.trust = this->pred_trust_;
+  out.predictor.innovation_sign = this->pred_innov_sign_;
+  out.predictor.pool_output = this->pred_pool_output_;
+  out.import_trim.dwell = this->steady_import_dwell_;
+  out.import_trim.engaged = this->steady_import_dwell_ >= IMPORT_TRIM_DWELL;
+  out.efficiency.demand_ema = this->demand_ema_;
+  out.efficiency.priority_order = this->priority_;
+  out.efficiency.deprioritized.assign(this->deprioritized_.begin(), this->deprioritized_.end());
+  std::sort(out.efficiency.deprioritized.begin(), out.efficiency.deprioritized.end());
+  out.efficiency.last_rotation_age = std::max(0.0, now - this->last_rotation_);
+  out.efficiency.all_dc_under_surplus = this->all_dc_surplus_warned_;
+  out.control_quality = this->control_quality_.snapshot();
+  if (this->probe_state_.has_value()) {
+    const ProbeState &probe = *this->probe_state_;
+    ProbeSnapshot snap;
+    snap.candidate_id = probe.candidate_id;
+    snap.active_ids = probe.active_ids;
+    snap.backup_ids = probe.backup_ids;
+    snap.proof_samples = probe.proof_samples;
+    snap.requested_power_abs = probe.requested_power_abs;
+    snap.started_age = std::max(0.0, now - probe.started_at);
+    snap.deadline_in = probe.deadline - now;
+    out.probe = snap;
+  }
+  return out;
+}
+
 // -------------------------------------------------------------------------
 // Auto-target pipeline
 // -------------------------------------------------------------------------
@@ -785,6 +957,14 @@ std::array<float, 3> LoadBalancer::compute_auto_target_(
   // can never correct (e.g. through a probe handoff).
   const bool trim_fresh = sample_id != this->trim_sample_id_;
   this->trim_sample_id_ = sample_id;
+  // Control quality is judged on the raw meter, before any early return below,
+  // so a probe handoff or a fading transition doesn't leave holes in the
+  // window. Deliberately *not* gated on trim_fresh like the trim is: a loop
+  // holding the grid perfectly still repeats its reading, and skipping those
+  // samples would let the verdict go stale precisely when the answer is
+  // "stable". Feeding every poll is safe because the EMAs are time-weighted.
+  this->control_quality_.update(grid_total, !reports.empty(),
+                                this->pool_out_of_headroom_(reports, grid_total));
   const float control_grid = this->apply_import_trim_(
       this->predict_control_grid_(reports, grid_total, sample_id), trim_fresh);
 
@@ -856,7 +1036,7 @@ std::array<float, 3> LoadBalancer::compute_auto_target_(
     const double desired = (total_fade > 0.0) ? demand * fade_w / total_fade : 0.0;
     float reading = to_grid_reading(NetOutputW(desired), reported);
     const float unpaced_reading = reading;
-    reading = this->pace_reading_(*consumer_id, reading, reported);
+    reading = this->pace_reading_(*consumer_id, reading, reported, reports);
     state.last_target = reading;
     state.last_intent = desired;
     state.last_intent_reading = unpaced_reading;
@@ -988,7 +1168,7 @@ std::array<float, 3> LoadBalancer::compute_auto_target_(
   float reading = to_grid_reading(NetOutputW(reported + residual), reported);
   const float unpaced_reading = reading;
   if (consumer_id) {
-    reading = this->pace_reading_(*consumer_id, reading, reported);
+    reading = this->pace_reading_(*consumer_id, reading, reported, reports);
     auto &auto_state = this->get_consumer_(*consumer_id);
     auto_state.last_target = reading;
     auto_state.last_intent = reported + residual;
@@ -1095,6 +1275,42 @@ float LoadBalancer::apply_import_trim_(float control_grid, bool fresh) {
   return control_grid;
 }
 
+// Whether the pool physically cannot close the remaining error: every battery
+// saturated (full, empty or clamped), or a surplus nothing reporting can
+// absorb. Either way the error is the pack's limit, not the controller
+// mis-steering. Deliberately conservative — with saturation detection off the
+// scores stay at zero and this returns false, so a limited pack reads as
+// "off_target" rather than being excused without evidence.
+// Mirrors balancer.py LoadBalancer::_pool_out_of_headroom.
+bool LoadBalancer::pool_out_of_headroom_(const ReportMap &reports, float grid_total) const {
+  if (reports.empty()) return false;
+  if (grid_total < -this->cfg_.balance_deadband && this->cannot_absorb_(reports)) return true;
+  for (const auto &r : reports) {
+    const auto it = this->consumers_.find(r.first);
+    if (it == this->consumers_.end()) return false;
+    if (it->second.saturation_score < CONTROL_QUALITY_SATURATED) return false;
+  }
+  return true;
+}
+
+// A DC-only battery cannot charge from AC, but while it is discharging it
+// absorbs a surplus by discharging less — it only runs out of room at its
+// MIN_DC_OUTPUT floor. Reading the device type alone excused every surplus on
+// an all-DC pool, reporting a symmetric hunt as a full pack. Mirrors
+// balancer.py LoadBalancer::_cannot_absorb.
+bool LoadBalancer::cannot_absorb_(const ReportMap &reports) const {
+  for (const auto &r : reports) {
+    if (is_ac_chargeable(r.second.device_type)) return false;
+    const float floor = r.second.min_dc_output.has_value()
+                            ? std::max(0.0f, *r.second.min_dc_output)
+                            : (needs_dc_output_floor(r.second.device_type)
+                                   ? this->cfg_.min_dc_output
+                                   : 0.0f);
+    if (r.second.power > floor + this->cfg_.balance_deadband) return false;
+  }
+  return true;
+}
+
 // Clamp the auto-path reading to the consumer's ramp-pacing cap (issue #458).
 // The battery integrates the reading with its own accelerating ramp, stepping
 // by at most min(GAIN[ramp], |reading|) per poll — so the reading we send is
@@ -1107,8 +1323,8 @@ float LoadBalancer::apply_import_trim_(float control_grid, bool fresh) {
 // manual / inactive steer-to-zero bypass it (see balancer.py for the
 // rationale). Caps are W per PACE_REFERENCE_DT; the per-poll clamp scales
 // with the consumer's observed inter-poll time, clamped at 1.0.
-float LoadBalancer::pace_reading_(const std::string &consumer_id, float reading,
-                                  float reported) {
+float LoadBalancer::pace_reading_(const std::string &consumer_id, float reading, float reported,
+                                  const ReportMap &reports) {
   const float base = this->cfg_.pace_base_step;
   if (base <= 0.0f) return reading;
   auto &state = this->get_consumer_(consumer_id);
@@ -1130,8 +1346,22 @@ float LoadBalancer::pace_reading_(const std::string &consumer_id, float reading,
   // minimum reading to clear their input hold window at all; the cadence
   // scale still bounds the grown cap (mirrors balancer.py).
   float limit = std::max(base, cap * dt_ratio);
+  // The stall escape and the response floor below only apply to devices that
+  // actually have a minimum actionable command — the DC-output family, whose
+  // channels are a hard on/off below their minimum. Every other battery can
+  // execute an arbitrarily small command, so it can never be deadlocked by the
+  // clamp; leaving it on the unmodified path keeps its behaviour bit-for-bit
+  // and confines the overshoot cost to the devices that need it.
+  const auto report_it = reports.find(consumer_id);
+  const bool can_stall =
+      report_it != reports.end() && needs_dc_output_floor(report_it->second.device_type);
+  bool stalled = false;
   if (sign == 0 || sign != state.pace_sign) {
     cap = base;
+    state.pace_stall_polls = 0;
+    // A reversal re-opens the question of what this device responds to in the
+    // new direction; nothing learned going one way carries over.
+    state.pace_responded_at = 0.0f;
   } else if (std::fabs(reading) > limit) {
     float moved = 0.0f;
     if (state.pace_prev_reported.has_value())
@@ -1139,10 +1369,35 @@ float LoadBalancer::pace_reading_(const std::string &consumer_id, float reading,
     // The tracking threshold and growth rate scale with the same cadence
     // ratio: a fast poller is expected to have moved less between polls,
     // and its cap doubles per reference second, not per poll.
-    if (moved >= PACE_TRACKING_DELTA_W * dt_ratio)
+    if (moved >= PACE_TRACKING_DELTA_W * dt_ratio) {
       cap = std::min(cap * std::pow(PACE_GROWTH_FACTOR, dt_ratio), this->cfg_.pace_max_step);
+      state.pace_stall_polls = 0;
+      // It moved, so last poll's command was one this device can execute.
+      // Remember it: clamping back under that level would switch a hysteresis
+      // regulator straight off again.
+      // Keep the *lowest* command seen to work, not the latest: the floor's job
+      // is "the least this device needs", so during a successful ramp — where
+      // the commands grow — overwriting would ratchet it up to the largest and
+      // hold every later same-direction correction there. It does not move the
+      // measured overshoot (the first command a stalled device responds to is
+      // already the escalated one); it matters when a smaller command later
+      // succeeds (mirrors balancer.py).
+      if (state.pace_last_sent > 0.0f &&
+          (state.pace_responded_at <= 0.0f || state.pace_last_sent < state.pace_responded_at))
+        state.pace_responded_at = state.pace_last_sent;
+    } else {
+      // Held below what the device can act on: grow anyway once the stall has
+      // persisted, or the clamp is self-sustaining (see PACE_STALL_ESCAPE_POLLS).
+      stalled = can_stall;
+      state.pace_stall_polls++;
+      if (can_stall && state.pace_stall_polls >= PACE_STALL_ESCAPE_POLLS) {
+        cap = std::min(cap * std::pow(PACE_GROWTH_FACTOR, dt_ratio), this->cfg_.pace_max_step);
+        state.pace_stall_polls = 0;
+      }
+    }
   } else {
     cap = std::max(base, std::fabs(reading) / dt_ratio);
+    state.pace_stall_polls = 0;
   }
   // Enforce the pace_max_step contract: the grow branch already clamps, but the
   // else branch back-computes cap as fabs(reading) / dt_ratio, which a fast poll
@@ -1152,8 +1407,25 @@ float LoadBalancer::pace_reading_(const std::string &consumer_id, float reading,
   state.pace_cap = cap;
   state.pace_sign = sign;
   state.pace_prev_reported = reported;
-  limit = std::max(base, cap * dt_ratio);
-  return std::max(-limit, std::min(limit, reading));
+  // The cadence scale exists so a fast poller cannot integrate the same
+  // per-poll reading into a higher W/s slew. A stalled device integrates
+  // nothing, so there is no slew to bound — and scaling a fast poller's clamp
+  // back down to base is precisely what keeps it stalled (max(base, cap *
+  // dt_ratio) stays at base until cap reaches base / dt_ratio, so growing the
+  // cap alone never frees a 0.3 s poller).
+  limit = std::max(base, stalled ? cap : cap * dt_ratio);
+  // Never clamp under a level this device has demonstrably responded to: for a
+  // hysteresis regulator a smaller command is not a gentler one but an *off*
+  // one, so the unit would switch off, stop moving, and need lifting again
+  // indefinitely. Still bounded by pace_max_step. This costs worst-case
+  // overshoot — the command that starts the device is one it responds to hard —
+  // and the trade is against it not starting at all, so it is confined to the
+  // devices that can fail to start (mirrors balancer.py).
+  if (can_stall)
+    limit = std::min(std::max(limit, state.pace_responded_at), this->cfg_.pace_max_step);
+  const float out = std::max(-limit, std::min(limit, reading));
+  state.pace_last_sent = std::fabs(out);
+  return out;
 }
 
 // True iff every battery in conc_ids already sits within balance_deadband of

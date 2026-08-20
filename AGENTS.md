@@ -19,9 +19,207 @@ uv run pytest
 
 CI runs the same steps (see `.github/workflows/ci.yml`).
 
+## Home Assistant add-on image
+
+`tests/test_addon_container.py` runs the built add-on image against a stand-in
+Supervisor (`tests/_fake_supervisor.py`) — the only test that covers
+`ha_addon/run.sh`, the venv path and `SUPERVISOR_TOKEN` reaching the app. It
+skips unless the image exists, so build it first when touching the add-on's
+container or launch path:
+
+```bash
+docker build -f ha_addon/Dockerfile -t astrameter-addon:test .
+uv run pytest tests/test_addon_container.py
+```
+
+CI does the same in the `addon-container` job — the durable path, since a
+sandboxed agent session may not be able to run these locally:
+
+- **The daemon is usually not running.** Docker is installed in Claude Code's
+  remote environment, but nothing starts it; `dockerd &` (as root) works, and
+  it does not survive into the next session.
+- **The build fails behind a TLS-intercepting proxy.** `apk add` in the
+  builder stage cannot verify the proxy's certificate. Build with
+  `--network host` and the proxy CA added to the image (the environment's
+  proxy notes — `/root/.ccr/README.md` on Claude Code — describe how). Do this
+  in a copy of the Dockerfile: the real one must stay proxy-free for CI.
+
+When neither is possible, leave the container tests to CI and say so rather
+than reporting the image as untested.
+
 ## Python ↔ ESPHome parity (REQUIRED)
 
 `esphome/components/ct002/` is a C++ mirror of the Python CT002 stack. Any change to shared behavior must land on **both** sides in the same change. See `CONTRIBUTING.md` for the file mapping and what has no C++ counterpart. Verify with `uv run pytest tests/components/ct002/`.
+
+Both halves of that suite need something the sandbox does not have by default,
+and both are obtainable — don't skip them:
+
+- **`test_shared_e2e.py` skips without the ESPHome CLI.** `uv tool install
+  esphome` (~2 min) turns ~40 skips into real `[esphome]` runs, which is the
+  half that actually proves parity.
+- **`test_host_protocol.py` fails to build behind a TLS-intercepting proxy.**
+  CMake fetches googletest as a GitHub tarball and the proxy answers 403. `git
+  clone` is allowed, so clone it once and point FetchContent at it — no repo
+  change needed:
+
+  ```bash
+  git clone --depth 1 --branch v1.14.0 https://github.com/google/googletest.git /tmp/googletest
+  cmake -S tests/components/ct002 -B /tmp/ct002_build -DCMAKE_BUILD_TYPE=Release \
+        -DFETCHCONTENT_SOURCE_DIR_GOOGLETEST=/tmp/googletest
+  cmake --build /tmp/ct002_build -j && (cd /tmp/ct002_build && for t in host_*_test; do ./$t; done)
+  ```
+
+### Dashboard / web UI (one page, two backends)
+
+**The same page** — `web/ts/dashboard/`, built into one self-contained HTML
+file — is served by the Python stack and by the ESPHome component, so a UI
+change lands on both at once and there is no second frontend to keep in sync.
+What differs is the document behind it:
+
+- The **status half has parity**: `src/astrameter/status/serialize.py` ↔
+  `esphome/components/ct002/status_json.{h,cpp}` (the wire layer), and
+  `CT002.status_snapshot` / `LoadBalancer.status_snapshot` ↔ their C++
+  namesakes. A field added to one side belongs on the other, under the same
+  name and unit. The firmware serves a genuinely **reduced** document, which
+  the schema is built for: every field is optional at every level, the frontend
+  renders only what it receives, and it must never substitute 0 or "—" for
+  something absent. What it leaves out is what the page does not render —
+  `balancer.config`, and the `integrations` entries with no card (cloud
+  reporting, Marstek registration) — since those would be bytes on every poll
+  that nothing reads. A field the page *does* render belongs on both sides.
+- The **configuration half is permanently waived.** An ESPHome device's config
+  is compiled into its firmware, so there is nothing for a dashboard to write.
+  The page hides its Configuration tab when the backend reports no
+  `config_mode`.
+- The **write path has parity too**: `esphome/components/ct002/controls.{h,cpp}`
+  mirrors `_CONTROL_RANGES` / `_CONTROL_SCALE` / `_coerce_control_value` in
+  `web_server.py`, and `apply_consumer_control` / `apply_device_control` mirror
+  its `_CONSUMER_SETTERS` table. The bounds MUST match: a value one stack
+  accepts and the other refuses would be settable from one dashboard and then
+  silently reverted by the next retained MQTT replay. It is opt-in on the
+  firmware (`controls:`, default off) because that page has no login.
+
+  **Both** stacks require `Content-Type: application/json` on every write — a
+  header a browser cannot set cross-origin without a preflight neither answers,
+  which is what stops any page the owner happens to visit from POSTing to a
+  device on their LAN. Both compare the parsed **media type**, and must keep
+  doing so: what makes a request preflight-free is the *essence*, the part
+  before the first `;`, so `text/plain; x=application/json` crosses origins
+  freely and a substring test on the raw header would admit it — with the
+  bodiless restart routes never re-checking the format afterwards. Python reads
+  `request.content_type`; the firmware calls `controls::is_json_content_type`,
+  which lives in `controls.{h,cpp}` rather than `dashboard.cpp` so a host gtest
+  can drive it. Neither the source-address gate in `web_server.py` nor
+  the firmware's `controls:` flag helps there: such a request arrives from the
+  owner's own browser, and the write lands whether or not the reply can be
+  read. Python enforces it in `WebServer._add`, so every `POST` route is
+  covered by construction; the firmware does it in `handle_control_`. Keep both
+  — and note `request.json()` parses a body whatever its declared type, so
+  dropping the check on the Python side silently reopens this.
+
+  Three divergences there are deliberate, so don't "restore" them: the
+  firmware **rejects a device write with no `value`** (except `force_rotation`,
+  which is a button) where Python defaults it to `True` — defaulting would
+  switch on `active_control` nobody asked for; it wants a **JSON number** where
+  Python accepts anything `float()` swallows; and it **ignores `device_id`**,
+  having exactly one device to write to.
+
+Three things the ESPHome half constrains, so keep them true:
+
+- The bundle stays inside the gzipped budget enforced by `npm run
+  check:dashboard` — it lives in the ESP32's flash.
+- The HTTP handler runs on the httpd task, **not** the main loop, so it must
+  never walk live state. `dashboard.cpp` builds the document from `loop()` and
+  hands writes to it, both across a mutex.
+- The ESP-IDF HTTP shim only parses **form-encoded** POST bodies into request
+  params. The page sends JSON, so `handle_control_` reads the body off the raw
+  `httpd_req_t` itself (the shim leaves it unread). Keep it that way rather
+  than inventing a second wire format for the firmware.
+
+Browser-level tests live in `web/e2e/` (`cd web && npm run e2e`) and boot the
+real stack. Anything touching the live DOM — the reconciler, a control's write
+path, a disclosure — needs a test there, because the unit tests render views
+to a string and cannot see those failures.
+
+The firmware side is covered in four places, because **ESPHome has no web
+server for the `host` platform** (`web_server` is declared ESP-only and
+`web_server_base.h` falls back to `<ESPAsyncWebServer.h>` elsewhere), so
+`dashboard.cpp` cannot be built or run there:
+
+- `host_status_json_test.cpp` / `host_controls_test.cpp` — the wire format and
+  the write-path bounds, as pure host gtests.
+- `host_write_slot_test.cpp` — the httpd-task ↔ main-loop write handover, with
+  real threads. This is why it lives in `write_slot.h` and not in
+  `dashboard.cpp`: keep it free of ESPHome deps so both sides stay drivable
+  from a host test, since a race here is otherwise untestable anywhere.
+- `test_dashboard_e2e.py` — the document built from **live** state and the
+  writes applied back into it, driven against the compiled host binary over
+  the test-control channel (`status` / `control` commands in `test_hooks.cpp`,
+  which is why `dashboard_state.cpp` compiles for test-hook builds too).
+- The ESP32 compile matrix — everything HTTP.
+
+That last one is the **only** thing that compiles `dashboard.cpp`, and it runs
+here, so don't leave it to CI after touching that file:
+
+```bash
+cd tests/components/ct002 && esphome compile test.dashboard.esp32-idf.yaml
+```
+
+The first run fetches the toolchain and dies on the TLS-intercepting proxy:
+PlatformIO builds its own venv and overrides `REQUESTS_CA_BUNDLE` with
+`certifi.where()`, so the CA has to go into *that* bundle —
+`cat /root/.ccr/ca-bundle.crt >> /root/.platformio/penv/lib/python3.11/site-packages/certifi/cacert.pem`.
+After that a config compiles in ~2.5 min.
+
+`src/astrameter/static/dashboard.html` and
+`esphome/components/ct002/dashboard_asset.h` (the same page gzipped, for the
+ESP32's flash) are **committed generated artifacts** — neither the Docker build
+nor `esphome compile` has Node. After touching anything under `web/`, run
+`cd web && npm run build:dashboard` and commit **both**; CI fails on a stale one.
+
+`.gitattributes` marks both `-diff -merge linguist-generated`, so they show as
+`Bin` in `git diff --stat` and collapse on GitHub rather than burying the
+change that caused them — gzip rewrites the whole byte array for a one-line
+source edit. Two consequences: `git diff` will not show you their contents (ask
+`npm run check:dashboard` whether they are stale), and a branch that conflicts
+on one should be resolved by **regenerating**, not by editing the conflict
+markers.
+
+### Screenshots (docs + website)
+
+`docs/images/dashboard-<tab>-<light|dark>.png` are **committed generated
+artifacts** too — embedded by `docs/dashboard.md`, `README.md` and the landing
+page (`web/build.mjs` copies them to `dist/assets/screenshots/`). Refresh them
+with:
+
+```bash
+cd web && npm run screenshots     # ~8 minutes; takes all 8
+```
+
+`web/tools/screenshots.ts` boots the same stack the browser tests use — via a
+`sim`/`configDir` override on `startStack` — against a bigger house (three
+batteries, five appliances, solar) and drives a real browser. It is
+deliberately patient: the trend lines are built in the browser from polls, so
+it waits for real samples, and it waits for a moment when the grid is actually
+at zero with every battery working before each shot. `--tabs`, `--themes`,
+`--warmup` and `--out` narrow a re-run. There is **no CI check** for staleness —
+the values are live, so every run differs and a diff would always be dirty;
+refresh them when a UI change makes them wrong.
+
+Two things to hold onto when refreshing them:
+
+- **The captions claim the grid sits at zero, and the images have to earn
+  it.** If a shot comes out tens of watts off, the scenario is wrong, not the
+  caption — do not reword the caption to match a bad run. Two settings decide
+  this: `base_noise` is re-rolled every read, so it is a hard floor under how
+  close to zero the grid can be held, and `auto_interval` must stay longer
+  than the loop takes to settle (~35 s mean, ~62 s p95 per the steering
+  evaluation) or the house is never settled at all. `--settle` (default 30 W,
+  a little wider than the balancer's own ±25 W settling band) is the guard
+  that catches both.
+- **`web/index.html` states each image's intrinsic `width`/`height`** to
+  reserve layout space. The crop height follows the tab's content, so re-check
+  those attributes after a refresh that changes a tab's height.
 
 ## Steering-quality evaluation (run when touching balancer behavior)
 
@@ -36,7 +234,12 @@ single-seed run, and `--seed N` to set the starting seed — seeds run are
 else in the active-control loop), capture a baseline first (`--json base.json`
 on the unchanged code), re-run after the change, and compare with `--input
 head.json --compare base.json`. CI runs the same suite on PR base + head (job
-`steering-eval`) and posts the comparison as a sticky PR comment. The
+`steering-eval`) and posts the comparison as a sticky PR comment. It costs a
+runner per scenario twice over, so `steering-eval-gate` keeps it off pushes
+entirely and off any PR whose diff touches neither `src/astrameter/ct002/`
+nor `src/astrameter/simulator/` (`*_test.py` under those paths doesn't count)
+nor `.github/workflows/ci.yml` — label a PR `steering-eval` to force a run
+when a change steers from somewhere else. The
 comparison leads with an **aggregate roll-up** (per-metric mean across all
 scenarios plus a one-line overall verdict — how many metrics
 improved/regressed and the mean relative change), so an across-the-board
@@ -82,7 +285,9 @@ For user-facing work, contribute **exactly one bullet under `## Next`** that sum
 
 Do **not** expand `CHANGELOG.md` with every internal or tooling-only follow-up. If the change's bullet already states the high-level theme, leave it unless the **user-visible** story changes.
 
-Write each bullet for the **user**, not the implementer: describe what changed for them and why it matters, and keep it **compact and clear**. **No implementation details in the changelog** — leave out internal symbol/function/class/file names, config knob mechanics, data structures, parity-mirror notes, and the like, unless a user genuinely needs them (e.g. a config option or env var they set). State the user-visible problem and outcome, not *how* it was fixed. Prefer one tight sentence over an exhaustive list of everything touched.
+Write each bullet for the **user**, not the implementer: the user-visible problem and outcome, not *how* it was fixed. **Keep it to one sentence of roughly 30 words.** Add a second sentence only when the user has to *do* something — set a new option, undo a workaround, adapt to a breaking change. Anything else gets cut: log excerpts, retellings of the symptom, why it happened, everything the change touched. Err on the side of too short — a bullet that reads as terse is right; a paragraph never is.
+
+**No implementation details** — internal symbol/function/class/file names, config-knob mechanics, data structures, parity-mirror notes — unless the user genuinely needs them (a config option or env var *they* set).
 
 **Link the bullet to its PR once the number is known** — append a `([#<pr>](https://github.com/tomquist/astrameter/pull/<pr>))` reference (alongside any issue links already cited) so the changelog points back to the change. The PR number usually isn't known when you first write the bullet, so add the link on the follow-up iteration after the PR exists. **Always do this as soon as you learn the PR number** (e.g. the moment a PR is opened for the branch, or a number is shared with you) — don't wait to be asked: add the reference and push it in your next commit.
 
@@ -90,12 +295,13 @@ Write each bullet for the **user**, not the implementer: describe what changed f
 
 Any **user-facing config option** must be wired into **every** config surface, not just the loader — a setting that only one entry point understands is a bug. When you add or rename a `[SECTION]` key, update **all** of:
 
-1. **Loader** — read it in `src/astrameter/config/config_loader.py` (or the relevant `run_device` block in `main.py`).
+1. **Settings + loader** — add the field (with its default) to the matching dataclass in `src/astrameter/config/settings.py`, read the `[SECTION] KEY` for it in `src/astrameter/config/ini_config.py` (powermeter keys: `src/astrameter/config/config_loader.py`), and use it where it belongs (e.g. `run_device` in `main.py`). Config **backends** answer the `AppConfig` interface — nothing outside `ini_config.py` / `config_loader.py` should know section or key names.
 2. **`config.ini.example`** — a commented example with a short rationale.
 3. **Web config editor** — register typed keys in `SECTION_KEY_TYPES` in `src/astrameter/web_config.py`.
 4. **Web config generator (ALWAYS)** — add the field to the matching group in `web/ts/schema.ts` (e.g. a `CT_*` group or a `POWERMETERS` entry), emit it from `web/ts/generate.ts` for **every** target it applies to (`config.ini`, the Home Assistant add-on options, and ESPHome **only if** it has an ESPHome counterpart — Python-only options carry no `ey` key and must be excluded from the `ct002:` block), surface it in `web/ts/app.ts`, and add `web/ts/generate.test.ts` assertions. Run `cd web && npm run check`.
-5. **Home Assistant add-on** — add the option + schema to `ha_addon/config.yaml`, map it to the generated `config.ini` in `ha_addon/run.sh`, and describe it in `ha_addon/translations/en.yaml`.
-6. **Docs** — the relevant `docs/*.md` (and `README.md` if it belongs in the quick reference).
+5. **Home Assistant add-on** — add the option + schema to `ha_addon/config.yaml`, map it onto the settings field in `src/astrameter/config/addon.py` (the `--addon` backend reads the add-on options directly — usually one entry in `_CT_FIELDS` / `_SOURCE_SIGNAL_FIELDS` / `_GENERAL_FIELDS`) with a test in `addon_test.py`, and describe it in `ha_addon/translations/en.yaml`. `ha_addon/run.sh` only launches the app — nothing to change there. `addon_schema_test.py` fails until the option is wired up (and `tests/test_addon_golden_settings.py` until it appears in the golden fixture), so an option that does nothing cannot ship.
+6. **Dashboard guided form** — an add-on option also needs a label, a `help` sentence and a group in `OPTION_META` (`web/ts/dashboard/option-meta.ts`), plus a `placeholder` when leaving it empty means something worth stating. Groups are declared in `GROUPS` in the same file; anything but the two open ones is folded shut. `dashboard.test.ts` reads `ha_addon/config.yaml` and fails on an option with no entry or no help — and on an entry for an option that no longer exists.
+7. **Docs** — the relevant `docs/*.md` (and `README.md` if it belongs in the quick reference).
 
 The web config generator is **not optional** — a new option that the generator can't produce is incomplete.
 

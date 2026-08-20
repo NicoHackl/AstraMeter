@@ -23,8 +23,11 @@ from .discovery import (
     build_ct002_consumer_discovery,
     build_ct002_device_discovery,
     build_powermeter_device_discovery,
+    build_retirement_payload,
     build_shelly_battery_discovery,
     build_shelly_device_discovery,
+    consumer_command_topic,
+    device_command_topic,
 )
 
 if TYPE_CHECKING:
@@ -74,6 +77,48 @@ class MqttInsightsConfig:
     powermeter_health_interval: float = 30.0
 
 
+@dataclass(frozen=True, slots=True)
+class MarstekBindingSnapshot:
+    """Immutable view of one registered Marstek MQTT responder binding."""
+
+    device_id: str
+    ct_type: str
+    mac: str
+    ver_v: int
+    wifi_rssi: int
+    poll_in_flight: bool
+    value_fetch_failing: bool
+
+
+@dataclass(frozen=True, slots=True)
+class MqttInsightsSnapshot:
+    """Immutable MQTT Insights view for the status API.
+
+    Carries the broker locator only — the username and password stay out of
+    the snapshot entirely so they cannot leak into the dashboard document.
+    """
+
+    connected: bool
+    broker: str
+    port: int
+    tls: bool
+    base_topic: str
+    ha_discovery: bool
+    ha_discovery_prefix: str
+    hub_identifier: str
+    queue_depth: int
+    queue_dropped_total: int
+    discovered_ct002_devices: int
+    discovered_ct002_consumers: int
+    discovered_shelly_devices: int
+    discovered_shelly_batteries: int
+    discovered_powermeters: int
+    powermeter_health_interval: float
+    marstek_enabled: bool
+    marstek_interval: float
+    marstek_bindings: tuple[MarstekBindingSnapshot, ...]
+
+
 @dataclass
 class _Event:
     kind: str  # "ct002", "ct002_remove", "shelly", "shelly_remove"
@@ -91,6 +136,7 @@ class MqttInsightsService:
         self._config = config
         self._powermeters: list[Powermeter] = list(powermeters or [])
         self._queue: asyncio.Queue[_Event] = asyncio.Queue(maxsize=QUEUE_MAX_SIZE)
+        self._queue_dropped = 0
         self._task: asyncio.Task[None] | None = None
         self._discovered_ct002_consumers: set[str] = set()
         self._discovered_ct002_devices: set[str] = set()
@@ -267,6 +313,11 @@ class MqttInsightsService:
 
     # ── Lifecycle ─────────────────────────────────────────────────────
 
+    @property
+    def connected(self) -> bool:
+        """True once connected *and* subscribed (cleared on every drop)."""
+        return self._connected.is_set()
+
     async def start(self) -> None:
         self._connected.clear()
         self._task = asyncio.create_task(self._run())
@@ -282,6 +333,98 @@ class MqttInsightsService:
                 await self._task
             self._task = None
 
+    # ── Read-only status surface (dashboard / diagnostics) ────────────
+
+    def status_snapshot(self) -> MqttInsightsSnapshot:
+        """Broker and integration state for the status API.
+
+        MUST stay a plain ``def`` doing attribute reads only: the caller
+        walks the whole live tree between UDP handlers, so an ``await``
+        here would let the rest of the snapshot tear.  In particular the
+        Marstek bindings are read with a single ``tuple(...)`` instead of
+        under ``_marstek_lock`` — the copy is atomic without the loop
+        yielding, and taking the lock would need an await.
+        """
+        cfg = self._config
+        bindings = tuple(self._marstek_bindings.values())
+        # A finished task lingers in the map until its done-callback runs.
+        polling = {
+            device_id
+            for device_id, task in self._marstek_tasks_by_binding.items()
+            if not task.done()
+        }
+        failing = self._marstek_get_values_failed
+        return MqttInsightsSnapshot(
+            connected=self.connected,
+            broker=cfg.broker,
+            port=cfg.port,
+            tls=cfg.tls,
+            base_topic=cfg.base_topic,
+            ha_discovery=cfg.ha_discovery,
+            ha_discovery_prefix=cfg.ha_discovery_prefix,
+            hub_identifier=self._hub_identifier(),
+            queue_depth=self._queue.qsize(),
+            queue_dropped_total=self._queue_dropped,
+            discovered_ct002_devices=len(self._discovered_ct002_devices),
+            discovered_ct002_consumers=len(self._discovered_ct002_consumers),
+            discovered_shelly_devices=len(self._discovered_shelly_devices),
+            discovered_shelly_batteries=len(self._discovered_shelly_batteries),
+            discovered_powermeters=len(self._discovered_powermeters),
+            powermeter_health_interval=cfg.powermeter_health_interval,
+            marstek_enabled=cfg.marstek_mqtt_enabled,
+            marstek_interval=cfg.marstek_mqtt_interval,
+            marstek_bindings=tuple(
+                MarstekBindingSnapshot(
+                    device_id=binding.device_id,
+                    ct_type=binding.ct_type,
+                    mac=binding.mac,
+                    ver_v=binding.ver_v,
+                    wifi_rssi=binding.wifi_rssi,
+                    poll_in_flight=binding.device_id in polling,
+                    value_fetch_failing=binding.device_id in failing,
+                )
+                for binding in bindings
+            ),
+        )
+
+    # ── Dashboard command writes ──────────────────────────────────────
+    # Published to the same retained command topics Home Assistant uses, so a
+    # dashboard write survives a reconnect instead of being reverted by the
+    # retained value the broker redelivers.  HTTP handlers only — never the
+    # snapshot path.
+
+    async def publish_consumer_command(
+        self, device_id: str, consumer_id: str, field: str, payload: str | float | bool
+    ) -> None:
+        """Publish a retained per-consumer command (scalar payload).
+
+        Callers hand this native scalars as well as strings — the dashboard
+        mirrors the JSON value it was given. The command topic is text, and
+        the reader parses it (``_parse_bool`` lower-cases, so ``True``
+        round-trips), so stringify here rather than at every call site.
+        """
+        await self._publish_command(
+            consumer_command_topic(
+                self._config.base_topic, device_id, consumer_id, field
+            ),
+            str(payload).encode(),
+        )
+
+    async def publish_device_command(
+        self, device_id: str, payload: dict[str, Any]
+    ) -> None:
+        """Publish a retained device-level command (JSON object payload)."""
+        await self._publish_command(
+            device_command_topic(self._config.base_topic, device_id),
+            json.dumps(payload).encode(),
+        )
+
+    async def _publish_command(self, topic: str, payload: bytes) -> None:
+        client = self._client
+        if client is None:
+            raise RuntimeError("MQTT Insights is not connected")
+        await client.publish(topic, payload=payload, qos=1, retain=True)
+
     # ── Internal ──────────────────────────────────────────────────────
 
     def _put_nowait(self, evt: _Event) -> None:
@@ -289,6 +432,7 @@ class MqttInsightsService:
             self._queue.put_nowait(evt)
         except asyncio.QueueFull:
             # Drop oldest to make room
+            self._queue_dropped += 1
             with contextlib.suppress(asyncio.QueueEmpty):
                 self._queue.get_nowait()
             with contextlib.suppress(asyncio.QueueFull):
@@ -355,12 +499,14 @@ class MqttInsightsService:
                     await client.subscribe(f"{cfg.base_topic}/ct002/+/consumer/+/+/set")
                     await client.subscribe(f"{cfg.base_topic}/ct002/+/set")
 
-                    # Subscribe to Marstek App topics for every registered
-                    # binding. Store the client so register_marstek() called
-                    # while already connected can live-subscribe too.
-                    if cfg.marstek_mqtt_enabled:
-                        async with self._marstek_lock:
-                            self._client = client
+                    # Store the client so register_marstek() called while
+                    # already connected can live-subscribe, and so the
+                    # dashboard write path has a connection to publish on —
+                    # both need it whether or not Marstek MQTT is enabled.
+                    # Then subscribe every registered binding's App topics.
+                    async with self._marstek_lock:
+                        self._client = client
+                        if cfg.marstek_mqtt_enabled:
                             for binding in self._marstek_bindings.values():
                                 for topic in app_topics_for(binding):
                                     await client.subscribe(topic)
@@ -482,6 +628,30 @@ class MqttInsightsService:
             except Exception:
                 logger.exception("Error publishing MQTT Insights event")
 
+    @staticmethod
+    async def _publish_discovery(
+        client: aiomqtt.Client,
+        topic: str,
+        payload: dict,
+        *,
+        retire: bool = False,
+    ) -> None:
+        """Publish a device discovery payload, retiring dropped entities first.
+
+        An entity that merely stops appearing in a discovery payload lives on in
+        Home Assistant, so payloads that used to carry one (see
+        ``RETIRED_COMPONENTS``) publish the retirement update first and the
+        current payload right after — the retained message the broker keeps is
+        then the current one.
+        """
+        if retire:
+            await client.publish(
+                topic,
+                payload=json.dumps(build_retirement_payload(payload)).encode(),
+                retain=True,
+            )
+        await client.publish(topic, payload=json.dumps(payload).encode(), retain=True)
+
     async def _handle_ct002_event(
         self,
         client: aiomqtt.Client,
@@ -512,6 +682,7 @@ class MqttInsightsService:
             "last_target": data.get("last_target"),
             "active": data.get("active", True),
             "poll_interval": data.get("poll_interval"),
+            "answer_interval": data.get("answer_interval"),
             "last_seen": data.get("last_seen", ""),
             "manual_target": data.get("manual_target"),
             "auto_target": data.get("auto_target", True),
@@ -532,6 +703,19 @@ class MqttInsightsService:
             "smooth_target": data.get("smooth_target", 0),
             "active_control": data.get("active_control", False),
             "consumer_count": data.get("consumer_count", 0),
+            "control_quality": data.get("control_quality", "idle"),
+            # Null, not 0: the score is absent while the loop has nothing to
+            # be scored on, and a 0 would read as "as bad as it gets".  The
+            # same holds for the evidence behind the verdict, which travels
+            # with it so an MQTT-only client can act on "off target" without
+            # the dashboard.
+            "control_quality_score": data.get("control_quality_score"),
+            "control_quality_error_w": data.get("control_quality_error_w"),
+            "control_quality_in_band_pct": data.get("control_quality_in_band_pct"),
+            "control_quality_crossings_per_min": data.get(
+                "control_quality_crossings_per_min"
+            ),
+            "control_quality_band_w": data.get("control_quality_band_w"),
         }
         await client.publish(
             f"{base}/ct002/{did}/status",
@@ -565,9 +749,7 @@ class MqttInsightsService:
                     device_type=data.get("device_type", ""),
                     efficiency_rotation=bool(data.get("efficiency_rotation", False)),
                 )
-                await client.publish(
-                    topic, payload=json.dumps(payload).encode(), retain=True
-                )
+                await self._publish_discovery(client, topic, payload, retire=True)
 
     async def _handle_ct002_remove(
         self,
@@ -642,9 +824,7 @@ class MqttInsightsService:
                 topic, payload = build_shelly_battery_discovery(
                     base, did, ip_slug, cfg.ha_discovery_prefix
                 )
-                await client.publish(
-                    topic, payload=json.dumps(payload).encode(), retain=True
-                )
+                await self._publish_discovery(client, topic, payload, retire=True)
                 await self._publish_bridge(client, cfg)
 
     async def _handle_shelly_remove(

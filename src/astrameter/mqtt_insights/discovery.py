@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from astrameter.ct002.balancer import _needs_dc_output_floor
+from astrameter.ct002.balancer import CONTROL_QUALITY_STATES, _needs_dc_output_floor
 from astrameter.version_info import get_git_commit_sha
 
 _SAFE_ID_RE = re.compile(r"[^a-zA-Z0-9_-]")
@@ -23,12 +23,66 @@ def _origin() -> dict:
     }
 
 
+def _absent_as_unknown(key: str) -> str:
+    """Value template mapping a JSON ``null`` onto Home Assistant's "unknown".
+
+    A control-quality figure is null until there is something to report. A
+    plain ``value_json.<key>`` renders that as the string "None", which HA
+    stores as a state and any "below X" automation then fires on.
+    """
+    return f"{{{{ value_json.{key} if value_json.{key} is not none else 'unknown' }}}}"
+
+
 def _system_availability(base_topic: str) -> dict:
     return {
         "topic": f"{base_topic}/status",
         "payload_available": "online",
         "payload_not_available": "offline",
     }
+
+
+# ── Retired components ────────────────────────────────────────────────────
+# Home Assistant keeps an entity that merely stops appearing in a later device
+# discovery payload, so anything we drop has to be retired explicitly: a
+# component config that is empty apart from ``platform`` reads as "remove this
+# entity".  ``build_retirement_payload`` produces that update; the service
+# publishes it right before the current payload, whose omission of the key then
+# leaves the retained discovery message up to date.
+#
+# ``last_seen`` was a wall-clock timestamp stamped at publish time, so it
+# changed on every poll — and a ``timestamp`` sensor can carry neither a unit
+# nor a state class, the two attributes HA's logbook uses to recognise a
+# continuous sensor.  Every poll therefore became a logbook row and a recorder
+# state (issue #576).  The field stays in the MQTT payload, and HA's own
+# ``last_reported`` on any entity of the device carries the same information.
+RETIRED_COMPONENTS: dict[str, str] = {"last_seen": "sensor"}
+
+
+def build_retirement_payload(payload: dict) -> dict:
+    """Copy of a discovery *payload* that also removes retired components."""
+    components = dict(payload["components"])
+    for key, platform in RETIRED_COMPONENTS.items():
+        components[key] = {"platform": platform}
+    return {**payload, "components": components}
+
+
+# ── Command topics ────────────────────────────────────────────────────────
+# One definition shared by the discovery payloads below, the service's
+# subscription/replay path, and the dashboard write path — a dashboard write
+# that missed this topic would be reverted by the retained value the broker
+# redelivers on the next reconnect.
+
+
+def consumer_command_topic(
+    base_topic: str, device_id: str, consumer_id: str, field: str
+) -> str:
+    """Retained command topic for one per-consumer setting (scalar payload)."""
+    return f"{base_topic}/ct002/{device_id}/consumer/{consumer_id}/{field}/set"
+
+
+def device_command_topic(base_topic: str, device_id: str) -> str:
+    """Retained device-level command topic (JSON object payload)."""
+    return f"{base_topic}/ct002/{device_id}/set"
 
 
 # ── CT002 consumer (per-battery) ──────────────────────────────────────────
@@ -89,13 +143,17 @@ def build_ct002_consumer_discovery(
         "value_template": "{{ (value_json.saturation * 100) | round(1) }}",
     }
 
-    # Phase sensor (enum)
+    # Phase sensor (enum).  The options must cover every phase a consumer
+    # payload can carry, or Home Assistant drops the state and logs "Ignoring
+    # invalid option" on every poll (issue #580): "D" is combined/whole-home
+    # mode on newer Marstek firmware.  Inspection reporters ("0") never reach
+    # this topic — their polls fire no event — so "0" is deliberately absent.
     components["phase"] = {
         "platform": "sensor",
         "unique_id": f"{uid_prefix}_phase",
         "name": "Phase",
         "device_class": "enum",
-        "options": ["A", "B", "C"],
+        "options": ["A", "B", "C", "D"],
         "state_topic": state_topic,
         "value_template": "{{ value_json.phase }}",
         "entity_category": "diagnostic",
@@ -118,16 +176,7 @@ def build_ct002_consumer_discovery(
         }
         components[key] = comp
 
-    # Last seen (timestamp)
-    components["last_seen"] = {
-        "platform": "sensor",
-        "unique_id": f"{uid_prefix}_last_seen",
-        "name": "Last Seen",
-        "device_class": "timestamp",
-        "state_topic": state_topic,
-        "value_template": "{{ value_json.last_seen }}",
-        "entity_category": "diagnostic",
-    }
+    # No "Last Seen" sensor: see RETIRED_COMPONENTS above (issue #576).
 
     # Poll interval (EMA-smoothed seconds between consecutive polls)
     components["poll_interval"] = {
@@ -138,6 +187,20 @@ def build_ct002_consumer_discovery(
         "unit_of_measurement": "s",
         "state_topic": state_topic,
         "value_template": "{{ value_json.poll_interval }}",
+        "entity_category": "diagnostic",
+    }
+
+    # Answer interval — how often this battery actually gets a reply.  Equal to
+    # the poll interval unless DEDUPE_TIME_WINDOW is suppressing replies, which
+    # is exactly when the difference is worth seeing.
+    components["answer_interval"] = {
+        "platform": "sensor",
+        "unique_id": f"{uid_prefix}_answer_interval",
+        "name": "Answer Interval",
+        "device_class": "duration",
+        "unit_of_measurement": "s",
+        "state_topic": state_topic,
+        "value_template": "{{ value_json.answer_interval }}",
         "entity_category": "diagnostic",
     }
 
@@ -160,7 +223,9 @@ def build_ct002_consumer_discovery(
         "mode": "box",
         "state_topic": state_topic,
         "value_template": "{{ value_json.manual_target | default(0) }}",
-        "command_topic": f"{state_topic}/manual_target/set",
+        "command_topic": consumer_command_topic(
+            base_topic, device_id, consumer_id, "manual_target"
+        ),
         "retain": True,
         "entity_category": "config",
     }
@@ -171,7 +236,9 @@ def build_ct002_consumer_discovery(
         "unique_id": f"{uid_prefix}_auto_target",
         "name": "Auto Target",
         "state_topic": state_topic,
-        "command_topic": f"{state_topic}/auto_target/set",
+        "command_topic": consumer_command_topic(
+            base_topic, device_id, consumer_id, "auto_target"
+        ),
         "value_template": "{{ value_json.auto_target }}",
         "payload_on": "true",
         "payload_off": "false",
@@ -187,7 +254,9 @@ def build_ct002_consumer_discovery(
         "unique_id": f"{uid_prefix}_active",
         "name": "Active",
         "state_topic": state_topic,
-        "command_topic": f"{state_topic}/active/set",
+        "command_topic": consumer_command_topic(
+            base_topic, device_id, consumer_id, "active"
+        ),
         "value_template": "{{ value_json.active }}",
         "payload_on": "true",
         "payload_off": "false",
@@ -209,7 +278,9 @@ def build_ct002_consumer_discovery(
         "mode": "slider",
         "state_topic": state_topic,
         "value_template": "{{ value_json.distribution_weight | default(1.0) }}",
-        "command_topic": f"{state_topic}/distribution_weight/set",
+        "command_topic": consumer_command_topic(
+            base_topic, device_id, consumer_id, "distribution_weight"
+        ),
         "retain": True,
         "entity_category": "config",
     }
@@ -235,7 +306,9 @@ def build_ct002_consumer_discovery(
             "value_template": (
                 "{{ (value_json.efficiency_window_weight | default(1.0)) * 100 }}"
             ),
-            "command_topic": f"{state_topic}/efficiency_window_weight/set",
+            "command_topic": consumer_command_topic(
+                base_topic, device_id, consumer_id, "efficiency_window_weight"
+            ),
             "retain": True,
             "entity_category": "config",
         }
@@ -257,7 +330,9 @@ def build_ct002_consumer_discovery(
             "mode": "box",
             "state_topic": state_topic,
             "value_template": "{{ value_json.min_dc_output | default(0) }}",
-            "command_topic": f"{state_topic}/min_dc_output/set",
+            "command_topic": consumer_command_topic(
+                base_topic, device_id, consumer_id, "min_dc_output"
+            ),
             "retain": True,
             "entity_category": "config",
         }
@@ -410,7 +485,7 @@ def build_ct002_device_discovery(
             "name": "Active Control",
             "state_topic": state_topic,
             "value_template": "{{ value_json.active_control }}",
-            "command_topic": f"{base_topic}/ct002/{device_id}/set",
+            "command_topic": device_command_topic(base_topic, device_id),
             "command_template": (
                 '{"active_control": {{ "true" if value == "ON" else "false" }}}'
             ),
@@ -429,6 +504,70 @@ def build_ct002_device_discovery(
             "value_template": "{{ value_json.consumer_count }}",
             "entity_category": "diagnostic",
         },
+        # How well the loop is holding the grid at zero, and how it misses when
+        # it doesn't — the one entity that answers "is this working?" without
+        # reading the balancer internals. Verdict plus a 0-100 score so it can
+        # be trended and alerted on. Both come from the balancer's
+        # ControlQualityTracker; the states are its documented vocabulary.
+        "control_quality": {
+            "platform": "sensor",
+            "unique_id": f"{uid_prefix}_control_quality",
+            "name": "Control Quality",
+            "device_class": "enum",
+            "options": list(CONTROL_QUALITY_STATES),
+            "state_topic": state_topic,
+            "value_template": "{{ value_json.control_quality }}",
+            "entity_category": "diagnostic",
+        },
+        "control_quality_score": {
+            "platform": "sensor",
+            "unique_id": f"{uid_prefix}_control_quality_score",
+            "name": "Control Quality Score",
+            "state_class": "measurement",
+            "unit_of_measurement": "%",
+            "state_topic": state_topic,
+            # The score is null while the loop has nothing to be scored on
+            # (idle / warming up). Mapping that to HA's "unknown" keeps a
+            # "score below X" automation from firing on an absent reading —
+            # a plain `value_json.…` would render the string "None".
+            "value_template": _absent_as_unknown("control_quality_score"),
+            "entity_category": "diagnostic",
+        },
+        # The evidence behind the verdict. It names no cause on purpose, so
+        # these are what a user acts on: a high crossing rate beside
+        # "off_target" points at a loop overshooting past zero, a near-zero one
+        # at a loop that never gets there. Same absence rule as the score.
+        "control_quality_error": {
+            "platform": "sensor",
+            "unique_id": f"{uid_prefix}_control_quality_error",
+            "name": "Control Quality Mean Error",
+            "device_class": "power",
+            "state_class": "measurement",
+            "unit_of_measurement": "W",
+            "state_topic": state_topic,
+            "value_template": _absent_as_unknown("control_quality_error_w"),
+            "entity_category": "diagnostic",
+        },
+        "control_quality_in_band": {
+            "platform": "sensor",
+            "unique_id": f"{uid_prefix}_control_quality_in_band",
+            "name": "Control Quality Time In Band",
+            "state_class": "measurement",
+            "unit_of_measurement": "%",
+            "state_topic": state_topic,
+            "value_template": _absent_as_unknown("control_quality_in_band_pct"),
+            "entity_category": "diagnostic",
+        },
+        "control_quality_crossings": {
+            "platform": "sensor",
+            "unique_id": f"{uid_prefix}_control_quality_crossings",
+            "name": "Control Quality Zero Crossings",
+            "state_class": "measurement",
+            "unit_of_measurement": "/min",
+            "state_topic": state_topic,
+            "value_template": _absent_as_unknown("control_quality_crossings_per_min"),
+            "entity_category": "diagnostic",
+        },
     }
 
     # The Force Rotation button only does anything when efficiency rotation is
@@ -439,7 +578,7 @@ def build_ct002_device_discovery(
             "platform": "button",
             "unique_id": f"{uid_prefix}_force_rotation",
             "name": "Force Rotation",
-            "command_topic": f"{base_topic}/ct002/{device_id}/set",
+            "command_topic": device_command_topic(base_topic, device_id),
             "payload_press": '{"force_rotation": true}',
             "entity_category": "config",
         }
@@ -597,15 +736,7 @@ def build_shelly_battery_discovery(
         "entity_category": "diagnostic",
     }
 
-    components["last_seen"] = {
-        "platform": "sensor",
-        "unique_id": f"{uid_prefix}_last_seen",
-        "name": "Last Seen",
-        "device_class": "timestamp",
-        "state_topic": state_topic,
-        "value_template": "{{ value_json.last_seen }}",
-        "entity_category": "diagnostic",
-    }
+    # No "Last Seen" sensor: see RETIRED_COMPONENTS above (issue #576).
 
     # Poll interval (EMA-smoothed seconds between consecutive polls)
     components["poll_interval"] = {

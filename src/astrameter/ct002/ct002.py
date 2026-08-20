@@ -16,8 +16,12 @@ from .balancer import (
     SATURATION_GRACE_SECONDS,
     SATURATION_STALL_TIMEOUT_SECONDS,
     BalancerConfig,
+    BalancerConsumerSnapshot,
+    BalancerSnapshot,
     ConsumerMode,
     LoadBalancer,
+    _needs_dc_output_floor,
+    device_capabilities,
 )
 from .protocol import (
     ETX,
@@ -71,6 +75,16 @@ ADAPTIVE_TTL_MIN_SECONDS = 5.0
 ADAPTIVE_TTL_FALLBACK_SECONDS = 30.0
 
 
+def _ema_interval(previous: float | None, raw: float) -> float:
+    """Fold *raw* into an EMA-smoothed interval, rounded to a tenth."""
+    if previous is None:
+        return round(raw, 1)
+    return round(
+        POLL_INTERVAL_EMA_ALPHA * raw + (1 - POLL_INTERVAL_EMA_ALPHA) * previous,
+        1,
+    )
+
+
 def _bucket_for_phase(phase: str) -> str:
     """Map a stored consumer phase to its aggregation bucket."""
     p = (phase or "").strip().upper()
@@ -79,6 +93,44 @@ def _bucket_for_phase(phase: str) -> str:
     if p == "D":
         return "ABC"
     return "x"
+
+
+def _control_quality_evidence(quality) -> dict[str, Any]:
+    """The numbers behind a control-quality verdict, for the MQTT payload.
+
+    Percentages rather than 0..1 fractions, and crossings per minute rather
+    than per second, so the values a client graphs read the way the docs
+    describe them.  All ``None`` until the window holds at least one sample:
+    the EMAs start at zero, which is indistinguishable from a perfectly held
+    grid, and a graph would record that as fact.
+    """
+    measured = quality.samples > 0
+    return {
+        "control_quality_error_w": round(quality.error_ema, 1) if measured else None,
+        "control_quality_in_band_pct": (
+            round(quality.in_band_fraction * 100, 1) if measured else None
+        ),
+        "control_quality_crossings_per_min": (
+            round(quality.crossings_per_second * 60, 2) if measured else None
+        ),
+        # Always meaningful: it is the configured settling band, not a
+        # measurement, and it is what the other figures are judged against.
+        "control_quality_band_w": round(quality.band, 1),
+    }
+
+
+def _values_finite(values) -> bool:
+    """True iff every meter value coerces to a finite number.
+
+    Numeric strings are tolerated (some sources deliver them); NaN/Inf or
+    garbage counts as a meter failure so the handler takes the hold path
+    instead of feeding it to the stateful controller (issue #548).
+    """
+    try:
+        return all(math.isfinite(float(v)) for v in values)
+    except (TypeError, ValueError, OverflowError):
+        # OverflowError: float(10**400) — an int too large for a float.
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -102,9 +154,19 @@ class Consumer:
     # populate cross-talk *_dchrg / *_chrg fields in responses to other
     # batteries — see _collect_reports_by_phase.
     last_instructed_power: float = 0.0
+    # Wall-clock of the last request *received* — every poll, whether or not
+    # the dedupe window suppressed our reply — and the EMA of those gaps: the
+    # battery's own polling cadence.  Liveness (TTL) hangs off this, because a
+    # battery whose polls we deliberately drop is still very much alive.
     timestamp: float = 0.0
     device_type: str = ""
     poll_interval: float | None = None
+    # Wall-clock of the last request we actually *answered*, and the EMA of
+    # those gaps — how often this consumer gets a reply, i.e. how often active
+    # control updates it.  Equal to `poll_interval` unless a dedupe window is
+    # dropping polls, which is precisely when the difference matters.
+    last_answer_at: float = 0.0
+    answer_interval: float | None = None
     # "Participate" flag from the request's optional 7th field. ``0`` on the
     # wire means "do not aggregate me"; defaults to ``True`` when the field is
     # absent (older senders send only 6 fields).
@@ -164,6 +226,73 @@ class ReportingConsumerRow:
     consumer_id: str
     last_ip: str
     phase: ReportingPhase
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class ConsumerSnapshot:
+    """Immutable view of one battery for the status API.
+
+    Powers are watts (positive = discharge), ages and intervals seconds,
+    ``last_seen_at`` a wall-clock epoch.  ``target`` is the three per-phase
+    grid-reading fields of the last reply, or ``None`` before the first one.
+    """
+
+    consumer_id: str
+    device_type: str
+    last_ip: str
+    phase: str
+    bucket: str
+    participates: bool
+    reported_power: float
+    last_instructed_power: float
+    target: tuple[float, ...] | None
+    last_seen_at: float
+    last_seen_age: float | None
+    poll_interval: float | None
+    answer_interval: float | None
+    ttl: float
+    expired: bool
+    in_flight: bool
+    mode: str
+    active: bool
+    manual_enabled: bool
+    manual_target: float
+    distribution_weight: float
+    efficiency_window_weight: float
+    min_dc_output: float | None
+    min_dc_output_applicable: bool
+    builtin_inverter: bool
+    ac_input: bool
+    dc_input: bool
+    balancer: BalancerConsumerSnapshot | None
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class CT002Snapshot:
+    """Immutable view of the whole CT002/CT003 emulator for the status API."""
+
+    device_id: str
+    ct_type: str
+    ct_mac: str
+    udp_port: int
+    wifi_rssi: int
+    running: bool
+    started_at: float | None
+    rev: int
+    active_control: bool
+    consumer_ttl: int | None
+    dedupe_window: float
+    debug_status: bool
+    info_idx: int
+    grid: tuple[float, ...] | None
+    grid_total: float
+    grid_sample_at: float | None
+    meter_failed: bool
+    consecutive_meter_failures: int
+    buckets: dict[str, dict[str, int | bool]]
+    consumers: tuple[ConsumerSnapshot, ...]
+    orphan_overrides: tuple[tuple[str, ConsumerOverride], ...]
+    balancer: BalancerSnapshot
 
 
 class _CT002Protocol(asyncio.DatagramProtocol):
@@ -278,6 +407,19 @@ class CT002:
         self._before_send_failure_count: int = 0
         self._before_send_last_warn: float = 0.0
 
+        # Read-only status surface (see status_snapshot).  Recorded at the
+        # single point in _handle_request where the raw reading, the emitted
+        # target and the meter verdict are all in scope.
+        self._last_grid_values: list[float] | None = None
+        self._last_grid_at: float = 0.0
+        self._last_meter_failed: bool = False
+        self._last_target_by_consumer: dict[str, list[float]] = {}
+        self._started_at: float = 0.0
+        self._running: bool = False
+        # Bumped on every state mutation so pollers can skip an unchanged
+        # render; wraps naturally and is never persisted.
+        self._rev: int = 0
+
         # Composed components
         self._last_smooth_target: float = 0.0
         self._balancer = LoadBalancer(
@@ -330,6 +472,23 @@ class CT002:
             self._apply_override(consumer)
             self._consumers[consumer_id] = consumer
         return consumer
+
+    def _track_answer(self, consumer_id: str) -> None:
+        """Record that we just replied to *consumer_id*.
+
+        Paired with ``poll_interval`` (which counts every poll), this is the
+        rate at which the battery actually receives an instruction — the
+        thing a dedupe window changes.
+        """
+        consumer = self._consumers.get(consumer_id)
+        if consumer is None:
+            return
+        now = self._clock()
+        if consumer.last_answer_at > 0:
+            consumer.answer_interval = _ema_interval(
+                consumer.answer_interval, now - consumer.last_answer_at
+            )
+        consumer.last_answer_at = now
 
     def _apply_override(self, consumer: Consumer) -> None:
         """Seed a freshly created consumer with any saved user overrides."""
@@ -501,15 +660,9 @@ class CT002:
         previous_phase = consumer.phase if consumer.timestamp > 0 else None
         now = self._clock()
         if consumer.timestamp > 0:
-            raw_interval = now - consumer.timestamp
-            if consumer.poll_interval is None:
-                consumer.poll_interval = round(raw_interval, 1)
-            else:
-                consumer.poll_interval = round(
-                    POLL_INTERVAL_EMA_ALPHA * raw_interval
-                    + (1 - POLL_INTERVAL_EMA_ALPHA) * consumer.poll_interval,
-                    1,
-                )
+            consumer.poll_interval = _ema_interval(
+                consumer.poll_interval, now - consumer.timestamp
+            )
         consumer.phase = normalized_phase
         consumer.power = parse_int(power, 0)
         consumer.timestamp = now
@@ -569,6 +722,9 @@ class CT002:
             self._call_event_listener(key, {"_removed": True})
             del self._consumers[key]
             self._balancer.remove_consumer(key)
+            self._last_target_by_consumer.pop(key, None)
+        if stale:
+            self._rev += 1
         # Dedup entries only matter within the dedupe window; with an adaptive
         # TTL there is no single number, so purge on a horizon that is safely
         # past any per-consumer TTL and the dedupe window itself.
@@ -699,6 +855,105 @@ class CT002:
             else:
                 by_phase[bucket]["dchrg_power"] += power
         return by_phase
+
+    # ------------------------------------------------------------------
+    # Read-only status surface (dashboard / diagnostics)
+    # ------------------------------------------------------------------
+
+    def snapshot_consumer(self, consumer_id: str) -> ConsumerSnapshot | None:
+        """Immutable view of one battery, or ``None`` if it is unknown.
+
+        Pure attribute reads; see :meth:`status_snapshot` for the
+        concurrency contract.
+        """
+        consumer = self._consumers.get(consumer_id)
+        if consumer is None:
+            return None
+        now = self._clock()
+        caps = device_capabilities(consumer.device_type)
+        target = self._last_target_by_consumer.get(consumer_id)
+        return ConsumerSnapshot(
+            consumer_id=consumer.consumer_id,
+            device_type=consumer.device_type,
+            last_ip=consumer.last_ip,
+            phase=consumer.phase,
+            bucket=_bucket_for_phase(consumer.phase),
+            participates=consumer.participates,
+            reported_power=float(consumer.power),
+            last_instructed_power=consumer.last_instructed_power,
+            target=tuple(target) if target is not None else None,
+            last_seen_at=consumer.timestamp,
+            last_seen_age=max(0.0, now - consumer.timestamp)
+            if consumer.timestamp > 0
+            else None,
+            poll_interval=consumer.poll_interval,
+            answer_interval=consumer.answer_interval,
+            ttl=self._consumer_ttl_seconds(consumer),
+            expired=self._consumer_expired(consumer, now),
+            in_flight=consumer_id in self._inflight_consumers,
+            mode=self._consumer_mode(consumer_id).mode,
+            active=consumer.active,
+            manual_enabled=consumer.manual_enabled,
+            manual_target=consumer.manual_target,
+            distribution_weight=consumer.distribution_weight,
+            efficiency_window_weight=consumer.efficiency_window_weight,
+            min_dc_output=consumer.min_dc_output,
+            min_dc_output_applicable=_needs_dc_output_floor(consumer.device_type),
+            builtin_inverter=caps.has_builtin_inverter,
+            ac_input=caps.has_ac_input,
+            dc_input=caps.has_dc_input,
+            balancer=self._balancer.snapshot_consumer(consumer_id),
+        )
+
+    def status_snapshot(self) -> CT002Snapshot:
+        """Immutable view of the whole emulator for the status API.
+
+        MUST stay a plain ``def``: the UDP handlers and the HTTP handlers
+        share one asyncio loop, so an await-free builder is atomic against
+        every in-flight datagram.  Adding an ``await`` here silently yields
+        torn snapshots that mix two polls.
+        """
+        grid = self._last_grid_values
+        # `_last_smooth_target` is only written by the active-control path, so
+        # relaying alone would report a total of 0 W beside non-zero phases.
+        # The per-phase values are recorded either way, so sum those instead.
+        grid_total = (
+            self._last_smooth_target if self.active_control else sum(grid or ())
+        )
+        return CT002Snapshot(
+            device_id=self._device_id,
+            ct_type=self.ct_type,
+            ct_mac=self.ct_mac,
+            udp_port=self.udp_port,
+            wifi_rssi=self.wifi_rssi,
+            running=self._running,
+            started_at=self._started_at or None,
+            rev=self._rev,
+            active_control=self.active_control,
+            consumer_ttl=self.consumer_ttl,
+            dedupe_window=self.dedupe_time_window,
+            debug_status=self.debug_status,
+            info_idx=self._info_idx_counter,
+            grid=tuple(grid) if grid is not None else None,
+            grid_total=grid_total,
+            grid_sample_at=self._last_grid_at or None,
+            meter_failed=self._last_meter_failed,
+            consecutive_meter_failures=self._before_send_failure_count,
+            buckets=self._collect_reports_by_phase(),
+            consumers=tuple(
+                snap
+                for snap in (
+                    self.snapshot_consumer(cid) for cid in sorted(self._consumers)
+                )
+                if snap is not None
+            ),
+            orphan_overrides=tuple(
+                (cid, override)
+                for cid, override in sorted(self._consumer_overrides.items())
+                if cid not in self._consumers
+            ),
+            balancer=self._balancer.status_snapshot(),
+        )
 
     def reporting_consumer_count(self) -> int:
         """Number of consumers that have reported at least once over UDP."""
@@ -993,17 +1248,14 @@ class CT002:
             " in inspection mode" if in_inspection_mode else "",
         )
 
-        # Deduplication check (keyed by consumer id so repeats from the
-        # same battery are suppressed regardless of source UDP port).
-        if not self._dedup.should_process(consumer_id):
-            logger.debug(
-                "Ignoring request from %s (consumer=%s) due to dedupe window",
-                addr,
-                consumer_id,
-            )
-            return
-
         meter_dev_type = fields[0] if len(fields) > 0 else ""
+        # Record the report for *every* poll, before the dedupe decision: the
+        # window suppresses our reply, it does not mean the battery went quiet.
+        # Booking it here keeps `poll_interval` measuring the battery's real
+        # cadence (rather than our answer rate), keeps the adaptive TTL from
+        # evicting a live battery whose polls we are deliberately dropping, and
+        # lets cross-talk aggregation use the freshest reported power.
+        #
         # Store the phase exactly as reported: "D" selects the combined ABC
         # bucket and any inspection marker is normalized to "0" (the x bucket)
         # by _update_consumer_report — forcing "A" here would mis-count
@@ -1016,6 +1268,21 @@ class CT002:
             source_ip=str(addr[0]),
             participates=participates,
         )
+
+        # Deduplication check (keyed by consumer id so repeats from the
+        # same battery are suppressed regardless of source UDP port).
+        if not self._dedup.should_process(consumer_id):
+            logger.debug(
+                "Ignoring request from %s (consumer=%s) due to dedupe window",
+                addr,
+                consumer_id,
+            )
+            # The report above moved liveness and poll_interval on, and this
+            # path never reaches the increment at the end of a served poll.
+            # Without this a status client that skips unchanged revisions
+            # would show a deduped battery frozen at its last answered poll.
+            self._rev += 1
+            return
 
         # Coalesce concurrent polls from the same battery.  If a handler for
         # this consumer is already parked awaiting the next meter reading, the
@@ -1058,6 +1325,17 @@ class CT002:
             else:
                 values = self._get_consumer_value(consumer_id)
                 if values is None:
+                    values = [0, 0, 0]
+                elif not _values_finite(values):
+                    # A non-finite reading (NaN/Inf from a flaky source or a
+                    # filter chain fed one) is a meter failure, not a sample.
+                    # One NaN fed into the stateful controller poisons the
+                    # grid-state predictor permanently: every later innovation
+                    # is NaN, so no fresh meter sample can ever correct the
+                    # estimate, and each battery ends up pinned at the
+                    # ramp-pacing base step until restart (issue #548). Take
+                    # the same hold path as an unavailable meter.
+                    meter_failed = True
                     values = [0, 0, 0]
             raw_values = ([*list(values), 0, 0, 0])[:3]
             meter_value = sum(parse_int(v, 0) for v in raw_values)
@@ -1127,10 +1405,22 @@ class CT002:
                     self._format_status(values, phase_values, consumer_id, meter_value),
                 )
             transport.sendto(response, addr)
+            self._track_answer(consumer_id)
+
+            # Record what we just served for the read-only status surface.
+            # This is the one point where the raw meter reading, the emitted
+            # target and the meter-health verdict are all in scope, so the
+            # dashboard cannot observe a half-updated combination.
+            self._last_grid_values = [float(v) for v in raw_values]
+            self._last_grid_at = self._clock()
+            self._last_meter_failed = meter_failed
+            self._last_target_by_consumer[consumer_id] = [float(v) for v in values]
+            self._rev += 1
 
             # Fire event listener after response is sent
             if not in_inspection_mode:
                 consumer = self._consumers.get(consumer_id)
+                quality = self._balancer.control_quality()
                 self._call_event_listener(
                     consumer_id,
                     {
@@ -1155,6 +1445,9 @@ class CT002:
                         "last_target": self._balancer.get_last_target(consumer_id),
                         "active": is_active,
                         "poll_interval": consumer.poll_interval if consumer else None,
+                        "answer_interval": (
+                            consumer.answer_interval if consumer else None
+                        ),
                         "last_seen": datetime.now(timezone.utc).isoformat(),
                         "smooth_target": self._last_smooth_target,
                         "manual_target": consumer.manual_target if consumer else None,
@@ -1175,6 +1468,23 @@ class CT002:
                         "consumer_count": sum(
                             1 for c in self._consumers.values() if c.timestamp > 0
                         ),
+                        "control_quality": quality.verdict,
+                        # None until the window says something; published as
+                        # JSON null so the HA sensor reads "unknown" rather
+                        # than a flawless 100 it has no evidence for.
+                        "control_quality_score": (
+                            round(quality.score, 1)
+                            if quality.score is not None
+                            else None
+                        ),
+                        # The evidence behind the verdict.  It deliberately
+                        # names no cause, so whatever reads the verdict needs
+                        # these to act on it — MQTT clients included, not just
+                        # the dashboard.  Null until at least one sample has
+                        # been folded in: the EMAs read as a perfectly held
+                        # grid before that, and a 0 W mean error next to an
+                        # "idle" verdict is a lie a graph would record.
+                        **_control_quality_evidence(quality),
                     },
                 )
         finally:
@@ -1198,6 +1508,9 @@ class CT002:
         self._protocol = protocol
         self._stopped.clear()
         self._cleanup_task = asyncio.create_task(self._cleanup_loop())
+        self._started_at = self._clock()
+        self._running = True
+        self._rev += 1
         logger.info("CT002 UDP server listening on port %s", self.udp_port)
 
     async def wait(self):
@@ -1217,4 +1530,6 @@ class CT002:
                 task.cancel()
             await asyncio.gather(*self._protocol._tasks, return_exceptions=True)
         self._protocol = None
+        self._running = False
+        self._rev += 1
         self._stopped.set()

@@ -3,6 +3,7 @@ from .base import Powermeter
 from .emlog import Emlog
 from .envoy import Envoy
 from .esphome import ESPHome
+from .esphome_native import ESPHomeNative
 from .fritz import FritzSmartEnergy
 from .fronius import Fronius
 from .homeassistant import HomeAssistant
@@ -11,6 +12,7 @@ from .iobroker import IoBroker
 from .json_http import JsonHttpPowermeter
 from .modbus import ModbusPowermeter
 from .mqtt import MqttPowermeter
+from .refoss import Refoss
 from .script import Script
 from .shelly import Shelly, Shelly1PM, Shelly3EM, Shelly3EMPro, ShellyEM, ShellyPlus1PM
 from .shrdzm import Shrdzm
@@ -34,6 +36,7 @@ __all__ = [
     "AmisReader",
     "DeadbandPowermeter",
     "ESPHome",
+    "ESPHomeNative",
     "Emlog",
     "Envoy",
     "FritzSmartEnergy",
@@ -48,6 +51,7 @@ __all__ = [
     "PidPowermeter",
     "Powermeter",
     "PowermeterWrapper",
+    "Refoss",
     "Script",
     "Shelly",
     "Shelly1PM",
