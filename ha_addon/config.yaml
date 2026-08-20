@@ -1,5 +1,5 @@
 name: "AstraMeter"
-version: "0.1.0"
+version: "0.1.1"
 slug: b2500_meter
 description: >-
   "Replicates a Smart Meter device for Marstek energy storage systems (formerly B2500 Meter) while allowing integration with various smart meters."
@@ -7,7 +7,7 @@ arch:
   - amd64
   - aarch64
 url: "https://github.com/tomquist/astrameter"
-image: "ghcr.io/tomquist/astrameter-addon"
+image: "ghcr.io/nicohackl/astrameter-addon"
 panel_icon: "mdi:meter-electric"
 panel_title: "AstraMeter"
 ingress: true

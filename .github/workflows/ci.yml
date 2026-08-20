@@ -676,7 +676,7 @@ jobs:
       registry: ghcr.io
       image-suffix: ""
       digest-prefix: "digests-base-"
-      legacy-image-name: tomquist/b2500-meter
+      legacy-image-name: ${{ github.repository_owner == 'tomquist' && 'tomquist/b2500-meter' || '' }}
 
   build-addon:
     needs: [ validate ]
@@ -715,4 +715,4 @@ jobs:
       registry: ghcr.io
       image-suffix: "-addon"
       digest-prefix: "digests-addon-"
-      legacy-image-name: tomquist/b2500-meter
+      legacy-image-name: ${{ github.repository_owner == 'tomquist' && 'tomquist/b2500-meter' || '' }}

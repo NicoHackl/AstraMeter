@@ -26,6 +26,19 @@ jobs:
       contents: read
       packages: write
     steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Read Home Assistant add-on version
+        id: addon-version
+        if: inputs.image-suffix == '-addon' && github.ref == 'refs/heads/main'
+        shell: bash
+        run: |
+          version=$(sed -n 's/^version: *"\([^"]*\)"/\1/p' ha_addon/config.yaml)
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$'; then
+            echo "Invalid add-on version: $version" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
       - name: Download digests
         uses: actions/download-artifact@v7
         with:
@@ -68,6 +81,7 @@ jobs:
             type=ref,event=pr
             type=sha
             type=raw,value=next,enable=${{ github.ref == 'refs/heads/develop' }}
+            type=raw,value=${{ steps.addon-version.outputs.version }},enable=${{ steps.addon-version.outputs.version != '' }}
             type=semver,pattern={{version}},enable=${{ github.ref_type == 'tag' }}
             type=semver,pattern={{major}}.{{minor}},enable=${{ github.ref_type == 'tag' }}
             type=semver,pattern={{major}},enable=${{ github.ref_type == 'tag' }}
