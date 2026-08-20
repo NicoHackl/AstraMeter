@@ -1,0 +1,100 @@
+[32m2026-08-20 20:44:40.306 INFO (MainThread) [supervisor.docker.manager] Cleaning app_3d34e6ac_b2500_meter application[0m
+[32m2026-08-20 20:44:40.854 INFO (MainThread) [supervisor.docker.app] Starting Docker app ghcr.io/tomquist/astrameter-addon with version next[0m
+[32m2026-08-20 20:44:43.776 INFO (MainThread) [supervisor.api.proxy] Home Assistant WebSocket API request initialize[0m
+[32m2026-08-20 20:44:43.778 INFO (MainThread) [supervisor.api.proxy] WebSocket access from 3d34e6ac_b2500_meter[0m
+[32m2026-08-20 20:44:43.784 INFO (MainThread) [supervisor.api.proxy] [3d34e6ac_b2500_meter] Home Assistant WebSocket API proxy running[0m
+[32m2026-08-20 20:50:15.308 INFO (MainThread) [supervisor.resolution.check] Starting system checks with state running[0m
+[32m2026-08-20 20:50:15.309 INFO (MainThread) [supervisor.resolution.checks.base] Run check for docker_config/system[0m
+[32m2026-08-20 20:50:15.309 INFO (MainThread) [supervisor.resolution.checks.base] Run check for multiple_data_disks/system[0m
+[32m2026-08-20 20:50:15.310 INFO (MainThread) [supervisor.resolution.checks.base] Run check for dns_server_ipv6_error/dns_server[0m
+[32m2026-08-20 20:50:15.411 INFO (MainThread) [supervisor.resolution.checks.base] Run check for pwned/addon[0m
+[32m2026-08-20 20:50:15.411 INFO (MainThread) [supervisor.resolution.checks.base] Run check for free_space/system[0m
+[32m2026-08-20 20:50:15.413 INFO (MainThread) [supervisor.resolution.checks.base] Run check for disabled_data_disk/system[0m
+[32m2026-08-20 20:50:15.413 INFO (MainThread) [supervisor.resolution.checks.base] Run check for disk_lifetime/system[0m
+[32m2026-08-20 20:50:15.414 INFO (MainThread) [supervisor.resolution.checks.base] Run check for app_port_conflict/addon[0m
+[32m2026-08-20 20:50:15.414 INFO (MainThread) [supervisor.resolution.checks.base] Run check for deprecated_arch_addon/addon[0m
+[32m2026-08-20 20:50:15.414 INFO (MainThread) [supervisor.resolution.checks.base] Run check for dns_server_failed/dns_server[0m
+[32m2026-08-20 20:50:15.414 INFO (MainThread) [supervisor.resolution.checks.base] Run check for ipv4_connection_problem/system[0m
+[32m2026-08-20 20:50:15.414 INFO (MainThread) [supervisor.resolution.check] System checks complete[0m
+[32m2026-08-20 20:50:15.414 INFO (MainThread) [supervisor.resolution.evaluate] Starting system evaluation with state running[0m
+[32m2026-08-20 20:50:15.428 INFO (MainThread) [supervisor.resolution.evaluate] System evaluation complete[0m
+[32m2026-08-20 20:50:15.429 INFO (MainThread) [supervisor.resolution.fixup] Starting system autofix at state running[0m
+[32m2026-08-20 20:50:15.429 INFO (MainThread) [supervisor.resolution.fixup] System autofix complete[0m
+[32m2026-08-20 20:55:38.455 INFO (MainThread) [supervisor.docker.manager] Stopping app_3d34e6ac_b2500_meter application[0m
+[32m2026-08-20 20:55:38.511 INFO (MainThread) [supervisor.api.proxy] [3d34e6ac_b2500_meter] Home Assistant WebSocket API closed[0m
+[32m2026-08-20 20:55:41.676 INFO (MainThread) [supervisor.docker.manager] Cleaning app_3d34e6ac_b2500_meter application[0m
+[32m2026-08-20 20:55:42.212 INFO (MainThread) [supervisor.docker.app] Starting Docker app ghcr.io/tomquist/astrameter-addon with version next[0m
+[32m2026-08-20 20:55:45.164 INFO (MainThread) [supervisor.api.proxy] Home Assistant WebSocket API request initialize[0m
+[32m2026-08-20 20:55:45.165 INFO (MainThread) [supervisor.api.proxy] WebSocket access from 3d34e6ac_b2500_meter[0m
+[32m2026-08-20 20:55:45.171 INFO (MainThread) [supervisor.api.proxy] [3d34e6ac_b2500_meter] Home Assistant WebSocket API proxy running[0m
+[32m2026-08-20 21:04:03.635 INFO (MainThread) [supervisor.host.info] Updating local host information[0m
+[32m2026-08-20 21:04:04.084 INFO (MainThread) [supervisor.host.services] Updating service information[0m
+[32m2026-08-20 21:04:04.088 INFO (MainThread) [supervisor.host.network] Updating local network information[0m
+[32m2026-08-20 21:04:04.182 INFO (MainThread) [supervisor.host.sound] Updating PulseAudio information[0m
+[32m2026-08-20 21:04:04.189 INFO (MainThread) [supervisor.host.manager] Host information reload completed[0m
+[32m2026-08-20 21:24:33.727 INFO (MainThread) [supervisor.store.git] Update app /data/apps/core repository from https://github.com/home-assistant/addons[0m
+[32m2026-08-20 21:24:33.729 INFO (MainThread) [supervisor.store.git] Update app /data/apps/git/a0d7b954 repository from https://github.com/hassio-addons/repository[0m
+[32m2026-08-20 21:24:33.730 INFO (MainThread) [supervisor.store.git] Update app /data/apps/git/5c53de3b repository from https://github.com/esphome/home-assistant-addon[0m
+[32m2026-08-20 21:24:33.730 INFO (MainThread) [supervisor.store.git] Update app /data/apps/git/d5369777 repository from https://github.com/music-assistant/home-assistant-addon[0m
+[32m2026-08-20 21:24:33.730 INFO (MainThread) [supervisor.store.git] Update app /data/apps/git/3d34e6ac repository from https://github.com/NicoHackl/AstraMeter[0m
+[33m2026-08-20 21:24:36.058 WARNING (SyncWorker_4) [supervisor.apps.validate] App 'AstraMeter' uses legacy map type 'addon_config'; use 'app_config' instead.[0m
+[32m2026-08-20 21:24:36.247 INFO (MainThread) [supervisor.store] Loading apps from store: 81 all - 2 new - 4 remove[0m
+[32m2026-08-20 21:25:40.020 INFO (MainThread) [supervisor.store.git] Update app /data/apps/git/a0d7b954 repository from https://github.com/hassio-addons/repository[0m
+[32m2026-08-20 21:25:40.020 INFO (MainThread) [supervisor.store.git] Update app /data/apps/git/d5369777 repository from https://github.com/music-assistant/home-assistant-addon[0m
+[32m2026-08-20 21:25:40.021 INFO (MainThread) [supervisor.store.git] Update app /data/apps/core repository from https://github.com/home-assistant/addons[0m
+[32m2026-08-20 21:25:40.021 INFO (MainThread) [supervisor.store.git] Update app /data/apps/git/5c53de3b repository from https://github.com/esphome/home-assistant-addon[0m
+[32m2026-08-20 21:25:40.028 INFO (MainThread) [supervisor.store.git] Update app /data/apps/git/3d34e6ac repository from https://github.com/NicoHackl/AstraMeter[0m
+[32m2026-08-20 21:26:14.209 INFO (MainThread) [supervisor.docker.manager] Stopping app_3d34e6ac_b2500_meter application[0m
+[32m2026-08-20 21:26:14.265 INFO (MainThread) [supervisor.api.proxy] [3d34e6ac_b2500_meter] Home Assistant WebSocket API closed[0m
+[32m2026-08-20 21:26:17.450 INFO (MainThread) [supervisor.docker.manager] Cleaning app_3d34e6ac_b2500_meter application[0m
+[32m2026-08-20 21:26:17.505 INFO (MainThread) [supervisor.docker.manager] Removing image ghcr.io/tomquist/astrameter-addon with latest[0m
+[32m2026-08-20 21:26:17.506 INFO (MainThread) [supervisor.docker.manager] Removing image ghcr.io/tomquist/astrameter-addon with next[0m
+[32m2026-08-20 21:26:17.742 INFO (SyncWorker_4) [supervisor.apps.app] Removing app data folder /data/apps/data/3d34e6ac_b2500_meter[0m
+[32m2026-08-20 21:26:17.751 INFO (MainThread) [supervisor.ingress] Update Ingress as panel for 3d34e6ac_b2500_meter[0m
+[32m2026-08-20 21:26:17.907 INFO (MainThread) [supervisor.apps.manager] App '3d34e6ac_b2500_meter' successfully removed[0m
+[32m2026-08-20 21:26:20.026 INFO (SyncWorker_0) [supervisor.apps.app] Creating Home Assistant app data folder /data/apps/data/3d34e6ac_b2500_meter[0m
+[32m2026-08-20 21:26:20.592 INFO (MainThread) [supervisor.docker.interface] Downloading docker image ghcr.io/tomquist/astrameter-addon with tag next.[0m
+[32m2026-08-20 21:26:30.114 INFO (MainThread) [supervisor.docker.interface] Attaching to ghcr.io/tomquist/astrameter-addon with version next[0m
+[32m2026-08-20 21:26:30.161 INFO (MainThread) [supervisor.apps.manager] App '3d34e6ac_b2500_meter' successfully installed[0m
+[32m2026-08-20 21:26:40.812 INFO (MainThread) [supervisor.ingress] Update Ingress as panel for 3d34e6ac_b2500_meter[0m
+[32m2026-08-20 21:26:43.199 INFO (MainThread) [supervisor.docker.app] Starting Docker app ghcr.io/tomquist/astrameter-addon with version next[0m
+[32m2026-08-20 21:26:46.662 INFO (MainThread) [supervisor.api.proxy] Home Assistant WebSocket API request initialize[0m
+[32m2026-08-20 21:26:46.663 INFO (MainThread) [supervisor.api.proxy] WebSocket access from 3d34e6ac_b2500_meter[0m
+[32m2026-08-20 21:26:46.669 INFO (MainThread) [supervisor.api.proxy] [3d34e6ac_b2500_meter] Home Assistant WebSocket API proxy running[0m
+[32m2026-08-20 21:28:50.158 INFO (MainThread) [supervisor.docker.manager] Stopping app_3d34e6ac_b2500_meter application[0m
+[32m2026-08-20 21:28:50.232 INFO (MainThread) [supervisor.api.proxy] [3d34e6ac_b2500_meter] Home Assistant WebSocket API closed[0m
+[32m2026-08-20 21:28:54.171 INFO (MainThread) [supervisor.docker.manager] Cleaning app_3d34e6ac_b2500_meter application[0m
+[32m2026-08-20 21:28:55.411 INFO (MainThread) [supervisor.docker.app] Starting Docker app ghcr.io/tomquist/astrameter-addon with version next[0m
+[32m2026-08-20 21:28:58.572 INFO (MainThread) [supervisor.api.proxy] Home Assistant WebSocket API request initialize[0m
+[32m2026-08-20 21:28:58.574 INFO (MainThread) [supervisor.api.proxy] WebSocket access from 3d34e6ac_b2500_meter[0m
+[32m2026-08-20 21:28:58.580 INFO (MainThread) [supervisor.api.proxy] [3d34e6ac_b2500_meter] Home Assistant WebSocket API proxy running[0m
+[32m2026-08-20 21:30:07.420 INFO (MainThread) [supervisor.docker.manager] Stopping app_3d34e6ac_b2500_meter application[0m
+[32m2026-08-20 21:30:07.467 INFO (MainThread) [supervisor.api.proxy] [3d34e6ac_b2500_meter] Home Assistant WebSocket API closed[0m
+[31m2026-08-20 21:30:08.326 ERROR (MainThread) [supervisor.api.ingress] Ingress error: Cannot connect to host 172.30.32.1:52500 ssl:default [Connect call failed ('172.30.32.1', 52500)][0m
+[32m2026-08-20 21:30:10.678 INFO (MainThread) [supervisor.docker.manager] Cleaning app_3d34e6ac_b2500_meter application[0m
+[32m2026-08-20 21:30:11.508 INFO (MainThread) [supervisor.docker.app] Starting Docker app ghcr.io/tomquist/astrameter-addon with version next[0m
+[32m2026-08-20 21:30:14.155 INFO (MainThread) [supervisor.api.proxy] Home Assistant WebSocket API request initialize[0m
+[32m2026-08-20 21:30:14.156 INFO (MainThread) [supervisor.api.proxy] WebSocket access from 3d34e6ac_b2500_meter[0m
+[32m2026-08-20 21:30:14.162 INFO (MainThread) [supervisor.api.proxy] [3d34e6ac_b2500_meter] Home Assistant WebSocket API proxy running[0m
+[32m2026-08-20 21:37:03.252 INFO (MainThread) [supervisor.store.git] Update app /data/apps/git/5c53de3b repository from https://github.com/esphome/home-assistant-addon[0m
+[32m2026-08-20 21:37:03.253 INFO (MainThread) [supervisor.store.git] Update app /data/apps/git/d5369777 repository from https://github.com/music-assistant/home-assistant-addon[0m
+[32m2026-08-20 21:37:03.253 INFO (MainThread) [supervisor.store.git] Update app /data/apps/core repository from https://github.com/home-assistant/addons[0m
+[32m2026-08-20 21:37:03.254 INFO (MainThread) [supervisor.store.git] Update app /data/apps/git/a0d7b954 repository from https://github.com/hassio-addons/repository[0m
+[32m2026-08-20 21:37:03.254 INFO (MainThread) [supervisor.store.git] Update app /data/apps/git/3d34e6ac repository from https://github.com/NicoHackl/AstraMeter[0m
+[33m2026-08-20 21:37:09.875 WARNING (MainThread) [supervisor.store.git] There is already a task in progress[0m
+[32m2026-08-20 21:37:09.875 INFO (MainThread) [supervisor.store.git] Update app /data/apps/git/a0d7b954 repository from https://github.com/hassio-addons/repository[0m
+[32m2026-08-20 21:37:09.875 INFO (MainThread) [supervisor.store.git] Update app /data/apps/git/5c53de3b repository from https://github.com/esphome/home-assistant-addon[0m
+[32m2026-08-20 21:37:09.881 INFO (MainThread) [supervisor.store.git] Update app /data/apps/git/d5369777 repository from https://github.com/music-assistant/home-assistant-addon[0m
+[32m2026-08-20 21:37:09.884 INFO (MainThread) [supervisor.store.git] Update app /data/apps/git/3d34e6ac repository from https://github.com/NicoHackl/AstraMeter[0m
+[33m2026-08-20 21:37:11.455 WARNING (SyncWorker_3) [supervisor.apps.validate] App 'AstraMeter' uses legacy map type 'addon_config'; use 'app_config' instead.[0m
+[32m2026-08-20 21:37:11.551 INFO (MainThread) [supervisor.store] Loading apps from store: 81 all - 0 new - 0 remove[0m
+[32m2026-08-20 21:37:14.886 INFO (MainThread) [supervisor.docker.app] Updating image ghcr.io/tomquist/astrameter-addon:next to ghcr.io/tomquist/astrameter-addon:0.1.0[0m
+[33m2026-08-20 21:37:15.283 WARNING (MainThread) [supervisor.docker.manifest] Failed to fetch manifest for ghcr.io/tomquist/astrameter-addon:0.1.0 - 404[0m
+[32m2026-08-20 21:37:15.283 INFO (MainThread) [supervisor.docker.interface] Downloading docker image ghcr.io/tomquist/astrameter-addon with tag 0.1.0.[0m
+[31m2026-08-20 21:37:16.147 ERROR (MainThread) [supervisor.docker.interface] Can't install ghcr.io/tomquist/astrameter-addon:0.1.0: [500] manifest unknown[0m
+[31m2026-08-20 21:37:16.148 ERROR (MainThread) [supervisor.apps.app] Could not pull image to update app 3d34e6ac_b2500_meter: Can't install ghcr.io/tomquist/astrameter-addon:0.1.0: [500] manifest unknown[0m
+[32m2026-08-20 21:37:27.572 INFO (MainThread) [supervisor.docker.app] Updating image ghcr.io/tomquist/astrameter-addon:next to ghcr.io/tomquist/astrameter-addon:0.1.0[0m
+[33m2026-08-20 21:37:27.994 WARNING (MainThread) [supervisor.docker.manifest] Failed to fetch manifest for ghcr.io/tomquist/astrameter-addon:0.1.0 - 404[0m
+[32m2026-08-20 21:37:27.995 INFO (MainThread) [supervisor.docker.interface] Downloading docker image ghcr.io/tomquist/astrameter-addon with tag 0.1.0.[0m
+[31m2026-08-20 21:37:28.734 ERROR (MainThread) [supervisor.docker.interface] Can't install ghcr.io/tomquist/astrameter-addon:0.1.0: [500] manifest unknown[0m
+[31m2026-08-20 21:37:28.734 ERROR (MainThread) [supervisor.apps.app] Could not pull image to update app 3d34e6ac_b2500_meter: Can't install ghcr.io/tomquist/astrameter-addon:0.1.0: [500] manifest unknown[0m

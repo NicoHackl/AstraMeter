@@ -43,6 +43,10 @@ long round_half_even(double v) {
 // match between the two stacks.
 constexpr float POLL_INTERVAL_EMA_ALPHA = 0.3f;
 
+// The CT MAC a battery addresses its probe to while it has no CT selected yet
+// (Python: ct002.WILDCARD_CT_MAC).
+static const char *const WILDCARD_CT_MAC = "000000000000";
+
 std::optional<float> ema_interval(std::optional<float> previous, float raw) {
   const auto round_tenth = [](float v) {
     return static_cast<float>(round_half_even(static_cast<double>(v) * 10.0)) / 10.0f;
@@ -525,7 +529,7 @@ bool CT002Component::validate_ct_mac_(const std::vector<std::string> &fields) co
   // Discovery polls address the all-zero wildcard because the battery does
   // not know the CT MAC yet. Answer with the configured MAC so the app can
   // list this CT; normal polls after selection address that MAC directly.
-  if (req == "000000000000") return true;
+  if (req == WILDCARD_CT_MAC) return true;
   std::string cfg(this->ct_mac_);
   for (auto &c : cfg) c = static_cast<char>(std::tolower(c));
   return req == cfg;
@@ -671,9 +675,20 @@ std::vector<std::string> CT002Component::build_response_fields_(
   const float total = phase_a + phase_b + phase_c;
   const std::string meter_dev_type = request_fields.size() > 0 ? request_fields[0] : "HMG-50";
   const std::string meter_mac = request_fields.size() > 1 ? request_fields[1] : "";
-  const std::string ct_mac_out =
-      !this->ct_mac_.empty() ? this->ct_mac_
-                             : (request_fields.size() > 3 ? request_fields[3] : "");
+  const std::string req_ct_mac = request_fields.size() > 3 ? request_fields[3] : "";
+  // Mirrors Python's CT002._build_response_fields precedence: an explicitly
+  // configured MAC wins; else a paired battery gets the MAC it addressed us by
+  // echoed back; else (an all-zero wildcard discovery probe, or no MAC at all)
+  // we answer with our advertised identity, because the wildcard itself is not
+  // selectable in the Marstek app.
+  std::string ct_mac_out;
+  if (!this->ct_mac_.empty()) {
+    ct_mac_out = this->ct_mac_;
+  } else if (!req_ct_mac.empty() && req_ct_mac != WILDCARD_CT_MAC) {
+    ct_mac_out = req_ct_mac;
+  } else {
+    ct_mac_out = this->ct_mac_advertise_.empty() ? req_ct_mac : this->ct_mac_advertise_;
+  }
 
   auto to_int_str = [](float f) {
     char buf[16];

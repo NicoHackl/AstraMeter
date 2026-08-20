@@ -156,12 +156,15 @@ def _build_ct002(
     device_id: str,
     debug_status: bool,
     reset_fn,
+    *,
+    ct_mac_advertise: str = "",
 ) -> CT002:
     """Create the emulator a :class:`CtSettings` describes."""
     return CT002(
         udp_port=ct.udp_port,
         ct_type=ct_type,
         ct_mac=ct.ct_mac,
+        ct_mac_advertise=ct_mac_advertise,
         wifi_rssi=ct.wifi_rssi,
         dedupe_time_window=ct.dedupe_time_window,
         consumer_ttl=ct.consumer_ttl,
@@ -259,12 +262,19 @@ async def run_device(
                 " + " + " + ".join(extras) if extras else "",
             )
 
+        # A battery that has not been paired yet probes with the all-zero
+        # wildcard.  Answer that with the identity the Marstek account knows
+        # (the one their app builds its CT picker from), or a stable local one
+        # when there is no registration -- never the wildcard itself, which is
+        # not selectable.  This does not gate which batteries we answer: CT_MAC
+        # alone does that, and it stays untouched.
         device = _build_ct002(
             ct,
             ct_type,
             device_id or "",
             debug_status,
             lambda: _reset_all_powermeters(powermeters),
+            ct_mac_advertise=marstek_mac or _virtual_ct_mac(device_id or device_type),
         )
 
         async def update_readings(addr, _fields=None, _consumer_id=None):
@@ -301,26 +311,36 @@ async def run_device(
         # Venus E Mini V295 (HHM-2) sends a native CT002 frame to the new
         # Shelly port instead of JSON-RPC. Keep the established JSON handler
         # and multiplex the existing CT implementation onto the same socket.
-        # Prefer the HME-4 identity registered in the user's Marstek account:
-        # the Venus app builds its CT picker from that account list.  Without
-        # registration, keep the deterministic local identity so discovery
-        # still never advertises the all-zero wildcard back to the battery.
+        #
+        # Two sockets, one emulator.  Port 2220 carries the discovery probe the
+        # battery sends while it has no CT selected; once the user picks the CT
+        # in the Marstek app the battery is a normal CT002 client and polls the
+        # standard CT port instead (22222 -> 12345, see
+        # docs/ct002-capture-analysis.md), so bind that one too or the paired
+        # battery talks to nobody and the CT stays dead on the LAN.
+        #
+        # ``ct_mac`` is deliberately left unset: it gates which batteries we
+        # answer, and pinning it to the registered MAC would turn the battery
+        # away the moment the user drops the (one-time) Marstek credentials.
+        # The identity goes into ``ct_mac_advertise`` instead, which only fills
+        # in the answer to a wildcard probe.
+        shelly_port = 2220
+        ct_settings = config.ct("ct002")
         fallback_ct_mac = marstek_mac or _virtual_ct_mac(device_id or "shellypro3em")
         fallback_ct = _build_ct002(
-            replace(
-                config.ct("ct002"),
-                udp_port=2220,
-                ct_mac=fallback_ct_mac,
-            ),
+            replace(ct_settings, ct_mac=""),
             "HME-4",
             device_id or "",
             False,
             lambda: _reset_all_powermeters(powermeters),
+            ct_mac_advertise=fallback_ct_mac,
         )
         logger.info(
-            "Venus E Mini HME-4 identity: %s (%s)",
+            "Venus E Mini HME-4 identity: %s (%s); serving UDP %s and %s",
             fallback_ct_mac,
             "registered with Marstek" if marstek_mac else "local only",
+            shelly_port,
+            ct_settings.udp_port,
         )
 
         async def update_fallback_readings(addr, _fields=None, _consumer_id=None):
@@ -331,7 +351,7 @@ async def run_device(
             powermeters=powermeters,
             device_id=device_id,
             device_type=device_type,
-            udp_port=2220,
+            udp_port=shelly_port,
             dedupe_time_window=general.dedupe_time_window,
             ct_fallback=fallback_ct,
         )
@@ -396,6 +416,29 @@ async def run_device(
                 "Device %s (%s) cleanup also failed", device_type, device_id
             )
         return
+
+    # The CT delegate behind a Shelly port also owns the standard CT socket, so
+    # a battery that has finished pairing (and therefore polls the CT port, not
+    # the Shelly one) reaches the same emulator instance.  Losing that socket is
+    # not fatal: a ``ct002`` device type in the same process legitimately owns
+    # the port already, and the Shelly path keeps working either way.
+    started_ct_fallback: CT002 | None = None
+    if isinstance(device, Shelly) and device.ct_fallback is not None:
+        try:
+            await device.ct_fallback.start()
+            started_ct_fallback = device.ct_fallback
+        except OSError as exc:
+            logger.warning(
+                "Device %s (%s) could not also serve the CT port %s: %s. "
+                "Paired batteries polling that port are handled by whichever "
+                "device type owns it; CT-framed discovery on UDP %s is "
+                "unaffected.",
+                device_type,
+                device_id,
+                device.ct_fallback.udp_port,
+                exc,
+                device.udp_port,
+            )
 
     # Same rule as the MQTT handlers below: only a device that actually came
     # up is visible to the dashboard, so a port conflict shows as an absent
@@ -576,6 +619,15 @@ async def run_device(
             if isinstance(device, CT002):
                 with contextlib.suppress(Exception):
                     await insights.unregister_marstek(device_id or "")
+        if started_ct_fallback is not None:
+            try:
+                await started_ct_fallback.stop()
+            except Exception:
+                logger.exception(
+                    "Device %s (%s) failed to stop its CT listener",
+                    device_type,
+                    device_id,
+                )
         try:
             await device.stop()
         except Exception:

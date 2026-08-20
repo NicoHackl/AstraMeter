@@ -1,12 +1,17 @@
 import argparse
+import logging
 from ipaddress import IPv4Network
 
 import astrameter.main as main_module
 from astrameter.config.config_loader import ClientFilter, new_config_parser
 from astrameter.config.ini_config import IniAppConfig
-from astrameter.config.settings import MarstekSettings
+from astrameter.config.settings import DEFAULT_CT_UDP_PORT, MarstekSettings
 from astrameter.main import _resolve_device_config, _virtual_ct_mac, read_ct_powermeter
 from astrameter.powermeter import Powermeter
+
+
+async def _noop_async(self, *args, **kwargs):
+    return None
 
 
 class _StubPowermeter(Powermeter):
@@ -118,26 +123,50 @@ def test_custom_shelly_id_gets_stable_locally_administered_ct_mac():
     assert int(first[:2], 16) & 0x03 == 0x02
 
 
-async def test_run_device_wires_ct_compatibility_into_port_2220(monkeypatch):
-    captured = {}
+class _FakeShelly:
+    """Stand-in for the Shelly listener, capturing what run_device built."""
 
-    class FakeShelly:
+    def __init__(self, **kwargs):
+        self.kwargs = kwargs
+        self.ct_fallback = kwargs.get("ct_fallback")
+        self.udp_port = kwargs.get("udp_port", 0)
+
+    async def start(self):
+        pass
+
+    async def wait(self):
+        pass
+
+    async def stop(self):
+        pass
+
+
+def _fake_shelly_factory(captured):
+    class FakeShelly(_FakeShelly):
         def __init__(self, **kwargs):
+            super().__init__(**kwargs)
             captured.update(kwargs)
-            self.ct_fallback = kwargs["ct_fallback"]
+            captured["device"] = self
 
-        async def start(self):
-            pass
+    return FakeShelly
 
-        async def wait(self):
-            pass
 
-        async def stop(self):
-            pass
+_DISCOVERY_REQUEST = ["HHM-2", "ccc837b413f5", "", "000000000000", "0", "0"]
 
-    monkeypatch.setattr(main_module, "Shelly", FakeShelly)
+
+async def test_run_device_wires_ct_compatibility_into_port_2220(monkeypatch):
+    captured: dict = {}
+    ct_started: list[int] = []
+
+    monkeypatch.setattr(main_module, "Shelly", _fake_shelly_factory(captured))
     config = IniAppConfig(new_config_parser())
     pm = _StubPowermeter([-963.0])
+
+    async def fake_ct_start(self):
+        ct_started.append(self.udp_port)
+
+    monkeypatch.setattr(main_module.CT002, "start", fake_ct_start)
+    monkeypatch.setattr(main_module.CT002, "stop", _noop_async)
 
     await main_module.run_device(
         "shellypro3em_new",
@@ -149,29 +178,34 @@ async def test_run_device_wires_ct_compatibility_into_port_2220(monkeypatch):
 
     fallback = captured["ct_fallback"]
     assert captured["udp_port"] == 2220
-    assert fallback.udp_port == 2220
     assert fallback.ct_type == "HME-4"
-    assert fallback.ct_mac == "ec4609c439c1"
+    # The Shelly port carries discovery; the CT port carries a paired battery,
+    # so the delegate binds it too.
+    assert fallback.udp_port == DEFAULT_CT_UDP_PORT
+    assert ct_started == [DEFAULT_CT_UDP_PORT]
+    # No CT_MAC: stay permissive so a battery paired with any CT is answered.
+    assert fallback.ct_mac == ""
+    assert fallback.ct_mac_advertise == "ec4609c439c1"
+    selected_mac = "02b250a1b2c3"
+    selected_request = ["HHM-2", "ccc837b413f5", "HME-4", selected_mac, "D", "0"]
+    assert fallback._validate_ct_mac(selected_request)
+    assert (
+        fallback._build_response_fields(selected_request, [1, 2, 3])[1] == selected_mac
+    )
+    # A discovery probe never gets the all-zero wildcard back.
+    assert (
+        fallback._build_response_fields(_DISCOVERY_REQUEST, [1, 2, 3])[1]
+        == "ec4609c439c1"
+    )
     assert await fallback.before_send(("127.0.0.1", 22222)) == [-963.0, 0, 0]
 
 
-async def test_run_device_uses_registered_ct_mac_for_venus_fallback(monkeypatch):
-    captured = {}
+async def test_run_device_advertises_registered_ct_mac_for_venus_fallback(monkeypatch):
+    captured: dict = {}
 
-    class FakeShelly:
-        def __init__(self, **kwargs):
-            captured.update(kwargs)
-
-        async def start(self):
-            pass
-
-        async def wait(self):
-            pass
-
-        async def stop(self):
-            pass
-
-    monkeypatch.setattr(main_module, "Shelly", FakeShelly)
+    monkeypatch.setattr(main_module, "Shelly", _fake_shelly_factory(captured))
+    monkeypatch.setattr(main_module.CT002, "start", _noop_async)
+    monkeypatch.setattr(main_module.CT002, "stop", _noop_async)
     config = IniAppConfig(new_config_parser())
 
     await main_module.run_device(
@@ -183,7 +217,81 @@ async def test_run_device_uses_registered_ct_mac_for_venus_fallback(monkeypatch)
         marstek_mac="02b250a1b2c3",
     )
 
-    assert captured["ct_fallback"].ct_mac == "02b250a1b2c3"
+    fallback = captured["ct_fallback"]
+    assert fallback.ct_mac_advertise == "02b250a1b2c3"
+    assert (
+        fallback._build_response_fields(_DISCOVERY_REQUEST, [1, 2, 3])[1]
+        == "02b250a1b2c3"
+    )
+    # Dropping the one-time Marstek credentials must not orphan the battery
+    # that was paired while they were set, so the gate stays open.
+    assert fallback.ct_mac == ""
+    assert fallback._validate_ct_mac(
+        ["HHM-2", "ccc837b413f5", "HME-4", "02b250ffffff", "D", "0"]
+    )
+
+
+async def test_run_device_survives_a_taken_ct_port(monkeypatch, caplog):
+    """A ct002 device type already owning the CT port must not kill Shelly."""
+    captured: dict = {}
+
+    monkeypatch.setattr(main_module, "Shelly", _fake_shelly_factory(captured))
+
+    async def refuse(self):
+        raise OSError(48, "Address already in use")
+
+    monkeypatch.setattr(main_module.CT002, "start", refuse)
+    monkeypatch.setattr(main_module.CT002, "stop", _noop_async)
+    config = IniAppConfig(new_config_parser())
+
+    with caplog.at_level(logging.WARNING):
+        await main_module.run_device(
+            "shellypro3em_new",
+            config,
+            config.general(),
+            [(_StubPowermeter([0.0]), _LOCAL, False)],
+            device_id="shellypro3em-ec4609c439c1",
+        )
+
+    assert captured["ct_fallback"] is not None
+    assert "could not also serve the CT port" in caplog.text
+
+
+async def test_run_device_advertises_registered_ct_mac_for_ct002(monkeypatch):
+    """The registered identity is what a CT002 discovery probe gets told."""
+    built: list = []
+
+    real_build = main_module._build_ct002
+
+    def spy(*args, **kwargs):
+        device = real_build(*args, **kwargs)
+        built.append(device)
+        return device
+
+    monkeypatch.setattr(main_module, "_build_ct002", spy)
+    monkeypatch.setattr(main_module.CT002, "start", _noop_async)
+    monkeypatch.setattr(main_module.CT002, "stop", _noop_async)
+    monkeypatch.setattr(main_module.CT002, "wait", _noop_async)
+    config = IniAppConfig(new_config_parser())
+
+    await main_module.run_device(
+        "ct002",
+        config,
+        config.general(),
+        [(_StubPowermeter([0.0]), _LOCAL, False)],
+        device_id="ct002-1",
+        marstek_mac="02b250a1b2c3",
+    )
+
+    device = built[0]
+    # CT_MAC unset, so the gate stays open and only the advertised identity
+    # names the CT.
+    assert device.ct_mac == ""
+    assert device.ct_mac_advertise == "02b250a1b2c3"
+    assert (
+        device._build_response_fields(_DISCOVERY_REQUEST, [1, 2, 3])[1]
+        == "02b250a1b2c3"
+    )
 
 
 def test_managed_marstek_registers_hme4_for_venus_fallback(monkeypatch):

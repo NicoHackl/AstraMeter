@@ -102,8 +102,10 @@ A:
 - **Venus:** Firmware 120+ for Shelly support, 152+ for improved regulation
 - **Venus E Mini:** Firmware V295 has been observed probing port 2220 with a
   native HHM-2/CT frame instead of Shelly JSON. Use `shellypro3em_new` or the
-  combined `shellypro3em`; AstraMeter auto-detects this format and advertises a
-  selectable virtual HME-4 CT in response.
+  combined `shellypro3em`; AstraMeter auto-detects this format, advertises a
+  selectable HME-4 CT in response, and also serves the standard CT port (12345)
+  that the battery switches to once you pick that CT in the app. Enable Marstek
+  registration so the advertised CT is one your account knows.
 - **B2500:** Firmware 108+ (HMJ devices) or 224+ (all others)
 
 ### How do I handle the different ports for Shelly Pro 3EM?
@@ -114,8 +116,9 @@ A: Use one of these device types:
 - `shellypro3em_new`: Port 2220 (B2500 firmware ≥226)
 - `shellypro3em`: Both ports (most compatible)
 
-The port-2220 type also covers the Venus E Mini V295 compatibility behavior;
-you do not need to add a separate `ct002` device type for it.
+The port-2220 type also covers the Venus E Mini V295 compatibility behavior —
+including the standard CT port (12345) a paired Venus polls — so you do not need
+to add a separate `ct002` device type for it.
 
 ### Can I use this with non-Marstek storage systems (e.g., Zendure, Hoymiles)?
 

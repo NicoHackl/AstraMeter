@@ -32,9 +32,21 @@ Shelly Pro 3EM, rather than sending Shelly JSON-RPC:
 
 The empty CT type, all-zero CT MAC and phase `0` make this a discovery/
 inspection request. AstraMeter's Python `shellypro3em_new` listener recognizes
-the CT framing on the shared port, answers as `HME-4` with a stable virtual CT
-MAC, and continues through the normal CT002 handler after selection. Ordinary
-Shelly JSON traffic on port 2220 remains unchanged.
+the CT framing on the shared port and answers as `HME-4` — never with the
+all-zero wildcard it was asked by, because that is not selectable in the app,
+but with the CT MAC registered in the user's Marstek account when there is one
+and a stable virtual MAC otherwise. Ordinary Shelly JSON traffic on port 2220
+remains unchanged.
+
+**Discovery and steady state use different ports.** Port 2220 only carries the
+probe above. Once the CT is selected in the app the battery is an ordinary
+CT002 client and polls the standard CT port (`22222 -> 12345`, see
+[ct002-capture-analysis.md](ct002-capture-analysis.md)) — so `shellypro3em_new`
+binds that port as well and serves both from one emulator instance (shared
+consumer table, balancer and dedupe). A battery that is already paired would
+otherwise reach nobody, and the CT stays dead on the LAN while the app happily
+lists it. If another configured device type (e.g. `ct002`) already owns the CT
+port, `shellypro3em_new` logs that and keeps serving port 2220 alone.
 
 ## Frame Format
 

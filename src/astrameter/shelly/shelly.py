@@ -400,10 +400,13 @@ class Shelly:
                 self._dedup.purge_older_than(
                     max(BATTERY_INACTIVE_TIMEOUT_SECONDS, self._dedupe_time_window)
                 )
-                if self._ct_fallback is not None:
+                if self._ct_fallback is not None and not self._ct_fallback.running:
                     # The delegate shares this instance's UDP socket rather
                     # than starting its own lifecycle task, so run its normal
-                    # adaptive consumer cleanup from ours.
+                    # adaptive consumer cleanup from ours.  When it *has* been
+                    # started on the CT port as well it runs that sweep itself;
+                    # driving it from here too would evict from the same state
+                    # twice per cycle.
                     self._ct_fallback._cleanup_consumers()
         except asyncio.CancelledError:
             pass
@@ -494,9 +497,10 @@ class Shelly:
         ):
             # The wire schema already supports either device shape. Once this
             # listener has actually received a CT-framed battery, show its CT
-            # consumers/targets instead of an empty Shelly card. The delegate
-            # does not own the socket lifecycle, so borrow those three values
-            # from this listening instance.
+            # consumers/targets instead of an empty Shelly card. The card is
+            # still *this* device, so its identity and lifecycle win — the
+            # delegate may additionally serve the CT port, but that is a second
+            # way in, not a second device.
             return dataclasses.replace(
                 self._ct_fallback.status_snapshot(),
                 device_id=self._device_id,

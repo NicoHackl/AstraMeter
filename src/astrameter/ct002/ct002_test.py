@@ -2,7 +2,7 @@ import asyncio
 
 import pytest
 
-from astrameter.ct002.ct002 import CT002, _values_finite
+from astrameter.ct002.ct002 import CT002, WILDCARD_CT_MAC, _values_finite
 from astrameter.ct002.protocol import build_payload, parse_request
 
 
@@ -372,3 +372,49 @@ def test_values_finite_helper() -> None:
     assert _values_finite(["abc"]) is False
     assert _values_finite([None]) is False
     assert _values_finite([10**400]) is False  # float() raises OverflowError
+
+
+# --- CT identity advertised to an unpaired battery ---------------------------
+#
+# A battery with no CT selected addresses its probe to the all-zero wildcard.
+# Echoing that back leaves nothing selectable in the Marstek app, so an
+# emulator that knows an identity has to name it.
+
+_WILDCARD_PROBE = ["HHM-2", "ccc837b413f5", "", WILDCARD_CT_MAC, "0", "0"]
+_PAIRED_POLL = ["HMG-50", "ccc837b413f5", "HME-4", "aabbccddeeff", "D", "0"]
+
+
+def _answered_ct_mac(device: CT002, request_fields: list[str]) -> str:
+    return device._build_response_fields(request_fields, [1, 2, 3])[1]
+
+
+def test_ct_mac_advertise_names_the_ct_for_a_discovery_probe() -> None:
+    device = CT002(ct_mac_advertise="02b250c21c5f")
+    assert _answered_ct_mac(device, _WILDCARD_PROBE) == "02b250c21c5f"
+    # A short frame with no CT MAC field at all is the same situation.
+    assert _answered_ct_mac(device, ["HHM-2", "ccc837b413f5"]) == "02b250c21c5f"
+
+
+def test_ct_mac_advertise_does_not_gate_who_is_answered() -> None:
+    """It is an identity, not a filter: CT_MAC alone decides that."""
+    device = CT002(ct_mac_advertise="02b250c21c5f")
+    assert device._validate_ct_mac(_PAIRED_POLL)
+    # ...and a battery paired with some other CT still gets its own MAC back.
+    assert _answered_ct_mac(device, _PAIRED_POLL) == "aabbccddeeff"
+
+
+def test_configured_ct_mac_outranks_the_advertised_one() -> None:
+    device = CT002(ct_mac="112233445566", ct_mac_advertise="02b250c21c5f")
+    assert _answered_ct_mac(device, _WILDCARD_PROBE) == "112233445566"
+    assert _answered_ct_mac(device, _PAIRED_POLL) == "112233445566"
+
+
+def test_without_an_advertised_identity_the_wildcard_is_still_mirrored() -> None:
+    """Unchanged behavior for everyone who never sets one."""
+    device = CT002()
+    assert _answered_ct_mac(device, _WILDCARD_PROBE) == WILDCARD_CT_MAC
+    assert _answered_ct_mac(device, _PAIRED_POLL) == "aabbccddeeff"
+
+
+def test_running_is_false_for_a_delegate_that_never_bound_a_socket() -> None:
+    assert CT002().running is False

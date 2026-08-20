@@ -56,6 +56,10 @@ __all__ = [
 
 UDP_PORT = 12345
 CLEANUP_INTERVAL_SECONDS = 5
+
+# The CT MAC a battery addresses its probe to while it has no CT selected yet.
+WILDCARD_CT_MAC = "000000000000"
+
 POLL_INTERVAL_EMA_ALPHA = 0.3
 
 # Cross-talk aggregation buckets, mirroring the real CT (see
@@ -316,6 +320,7 @@ class CT002:
         self,
         udp_port=UDP_PORT,
         ct_mac="",
+        ct_mac_advertise="",
         ct_type="HME-4",
         wifi_rssi=-50,
         dedupe_time_window=0.0,
@@ -361,6 +366,13 @@ class CT002:
     ) -> None:
         self.udp_port = udp_port
         self.ct_mac = ct_mac
+        # Identity to advertise when nothing else names one: a battery that has
+        # not been paired yet addresses its probe to the all-zero wildcard, and
+        # echoing that back leaves the app with nothing selectable.  Kept apart
+        # from ``ct_mac`` on purpose — ``ct_mac`` also *gates* which batteries we
+        # answer (see _validate_ct_mac), and an advertised identity must not
+        # start turning away a battery that is paired with some other CT.
+        self.ct_mac_advertise = ct_mac_advertise
         self.ct_type = ct_type
         self.wifi_rssi = wifi_rssi
         self.dedupe_time_window = dedupe_time_window
@@ -1040,11 +1052,19 @@ class CT002:
         meter_dev_type = request_fields[0] if len(request_fields) > 0 else "HMG-50"
         meter_mac = request_fields[1] if len(request_fields) > 1 else ""
         ct_type = self.ct_type
-        ct_mac = (
-            self.ct_mac
-            if self.ct_mac
-            else (request_fields[3] if len(request_fields) > 3 else "")
-        )
+        req_ct_mac = request_fields[3] if len(request_fields) > 3 else ""
+        if self.ct_mac:
+            ct_mac = self.ct_mac
+        elif req_ct_mac and req_ct_mac != WILDCARD_CT_MAC:
+            # Paired battery: mirror the CT MAC it addressed us by, so a
+            # CT_MAC-less emulator keeps answering as whatever CT it stands in
+            # for.
+            ct_mac = req_ct_mac
+        else:
+            # Discovery probe (all-zero wildcard, or no CT MAC at all).  Answer
+            # with a real identity when we have one — the wildcard is not
+            # selectable in the app.
+            ct_mac = self.ct_mac_advertise or req_ct_mac
         response_fields = [
             ct_type,
             ct_mac,
@@ -1191,7 +1211,9 @@ class CT002:
         # and addresses its probe to the all-zero wildcard. A configured CT
         # must answer that probe with its own MAC so the battery/app can list
         # it; once selected, subsequent polls address that MAC directly.
-        return req_ct_mac == "000000000000" or req_ct_mac.lower() == self.ct_mac.lower()
+        return (
+            req_ct_mac == WILDCARD_CT_MAC or req_ct_mac.lower() == self.ct_mac.lower()
+        )
 
     async def _safe_handle_request(self, data, addr, transport):
         try:
@@ -1501,6 +1523,16 @@ class CT002:
                 self._cleanup_consumers()
         except asyncio.CancelledError:
             pass
+
+    @property
+    def running(self) -> bool:
+        """True once :meth:`start` bound a socket of its own.
+
+        False for a delegate that only answers over somebody else's transport
+        (the Shelly port-sharing adapter), which is how that adapter knows
+        whether it still has to drive this instance's consumer cleanup.
+        """
+        return self._running
 
     async def start(self):
         loop = asyncio.get_running_loop()

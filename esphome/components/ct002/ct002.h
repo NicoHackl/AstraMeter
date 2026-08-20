@@ -161,6 +161,10 @@ class CT002Component : public Component {
   }
   void set_ct_type(const std::string &v) { this->ct_type_ = v; }
   void set_ct_mac(const std::string &v) { this->ct_mac_ = v; }
+  // Identity advertised when nothing else names one -- see
+  // build_response_fields_ and the Python CT002.ct_mac_advertise it mirrors.
+  // Kept apart from ct_mac_, which also gates which batteries we answer.
+  void set_ct_mac_advertise(const std::string &v) { this->ct_mac_advertise_ = v; }
   void set_wifi_rssi(int v) { this->wifi_rssi_ = v; }
   void set_udp_port(uint16_t v) { this->udp_port_ = v; }
   void set_active_control(bool v) { this->active_control_ = v; }
@@ -412,6 +416,7 @@ class CT002Component : public Component {
   sensor::Sensor *power_sensor_l3_{nullptr};
   std::string ct_type_{"HME-4"};
   std::string ct_mac_;
+  std::string ct_mac_advertise_;
   int wifi_rssi_{-50};
   uint16_t udp_port_{12345};
   bool active_control_{true};

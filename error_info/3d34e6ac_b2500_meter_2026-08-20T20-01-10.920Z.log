@@ -1,0 +1,500 @@
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/json/decoder.py", line 356, in raw_decode
+    raise JSONDecodeError("Expecting value", s, err.value) from None
+json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+2026-08-20 21:53:33 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 792
+2026-08-20 21:53:35 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 819
+2026-08-20 21:53:37 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 864
+2026-08-20 21:53:39 DEBUG:astrameter:Received UDP message: 45|HHM-2|ccc837b413f5||000000000000|0|0|77
+2026-08-20 21:53:39 DEBUG:astrameter:From: 192.168.10.32:22222
+2026-08-20 21:53:39 ERROR:astrameter:Error: Invalid JSON
+Traceback (most recent call last):
+  File "/app/.venv/lib/python3.12/site-packages/astrameter/shelly/shelly.py", line 258, in _handle_request
+    request = json.loads(request_str)
+              ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/json/__init__.py", line 346, in loads
+    return _default_decoder.decode(s)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/json/decoder.py", line 338, in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/json/decoder.py", line 356, in raw_decode
+    raise JSONDecodeError("Expecting value", s, err.value) from None
+json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+2026-08-20 21:53:39 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 852
+2026-08-20 21:53:41 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 816
+2026-08-20 21:53:43 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 795
+2026-08-20 21:53:45 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 771
+2026-08-20 21:53:47 DEBUG:astrameter:Received UDP message: 45|HHM-2|ccc837b413f5||000000000000|0|0|77
+2026-08-20 21:53:47 DEBUG:astrameter:From: 192.168.10.32:22222
+2026-08-20 21:53:47 ERROR:astrameter:Error: Invalid JSON
+Traceback (most recent call last):
+  File "/app/.venv/lib/python3.12/site-packages/astrameter/shelly/shelly.py", line 258, in _handle_request
+    request = json.loads(request_str)
+              ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/json/__init__.py", line 346, in loads
+    return _default_decoder.decode(s)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/json/decoder.py", line 338, in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/json/decoder.py", line 356, in raw_decode
+    raise JSONDecodeError("Expecting value", s, err.value) from None
+json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+2026-08-20 21:53:47 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 801
+2026-08-20 21:53:49 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 840
+2026-08-20 21:53:51 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 882
+2026-08-20 21:53:53 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 906
+2026-08-20 21:53:55 DEBUG:astrameter:Received UDP message: 45|HHM-2|ccc837b413f5||000000000000|0|0|77
+2026-08-20 21:53:55 DEBUG:astrameter:From: 192.168.10.32:22222
+2026-08-20 21:53:55 ERROR:astrameter:Error: Invalid JSON
+Traceback (most recent call last):
+  File "/app/.venv/lib/python3.12/site-packages/astrameter/shelly/shelly.py", line 258, in _handle_request
+    request = json.loads(request_str)
+              ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/json/__init__.py", line 346, in loads
+    return _default_decoder.decode(s)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/json/decoder.py", line 338, in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/json/decoder.py", line 356, in raw_decode
+    raise JSONDecodeError("Expecting value", s, err.value) from None
+json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+2026-08-20 21:53:55 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 891
+2026-08-20 21:53:57 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 843
+2026-08-20 21:53:59 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 807
+2026-08-20 21:54:01 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 792
+2026-08-20 21:54:03 DEBUG:astrameter:Received UDP message: 45|HHM-2|ccc837b413f5||000000000000|0|0|77
+2026-08-20 21:54:03 DEBUG:astrameter:From: 192.168.10.32:22222
+2026-08-20 21:54:03 ERROR:astrameter:Error: Invalid JSON
+Traceback (most recent call last):
+  File "/app/.venv/lib/python3.12/site-packages/astrameter/shelly/shelly.py", line 258, in _handle_request
+    request = json.loads(request_str)
+              ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/json/__init__.py", line 346, in loads
+    return _default_decoder.decode(s)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/json/decoder.py", line 338, in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/json/decoder.py", line 356, in raw_decode
+    raise JSONDecodeError("Expecting value", s, err.value) from None
+json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+2026-08-20 21:54:03 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 813
+2026-08-20 21:54:05 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 852
+2026-08-20 21:54:07 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 867
+2026-08-20 21:54:09 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 876
+2026-08-20 21:54:11 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 858
+2026-08-20 21:54:12 DEBUG:astrameter:Received UDP message: 45|HHM-2|ccc837b413f5||000000000000|0|0|77
+2026-08-20 21:54:12 DEBUG:astrameter:From: 192.168.10.32:22222
+2026-08-20 21:54:12 ERROR:astrameter:Error: Invalid JSON
+Traceback (most recent call last):
+  File "/app/.venv/lib/python3.12/site-packages/astrameter/shelly/shelly.py", line 258, in _handle_request
+    request = json.loads(request_str)
+              ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/json/__init__.py", line 346, in loads
+    return _default_decoder.decode(s)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/json/decoder.py", line 338, in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/json/decoder.py", line 356, in raw_decode
+    raise JSONDecodeError("Expecting value", s, err.value) from None
+json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+2026-08-20 21:54:13 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 846
+2026-08-20 21:54:15 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 816
+2026-08-20 21:54:17 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 792
+2026-08-20 21:54:19 DEBUG:astrameter:Received UDP message: 45|HHM-2|ccc837b413f5||000000000000|0|0|77
+2026-08-20 21:54:19 DEBUG:astrameter:From: 192.168.10.32:22222
+2026-08-20 21:54:19 ERROR:astrameter:Error: Invalid JSON
+Traceback (most recent call last):
+  File "/app/.venv/lib/python3.12/site-packages/astrameter/shelly/shelly.py", line 258, in _handle_request
+    request = json.loads(request_str)
+              ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/json/__init__.py", line 346, in loads
+    return _default_decoder.decode(s)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/json/decoder.py", line 338, in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/json/decoder.py", line 356, in raw_decode
+    raise JSONDecodeError("Expecting value", s, err.value) from None
+json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+2026-08-20 21:54:19 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 783
+2026-08-20 21:54:21 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 789
+2026-08-20 21:54:23 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 807
+2026-08-20 21:54:25 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 840
+2026-08-20 21:54:27 DEBUG:astrameter:Received UDP message: 45|HHM-2|ccc837b413f5||000000000000|0|0|77
+2026-08-20 21:54:27 DEBUG:astrameter:From: 192.168.10.32:22222
+2026-08-20 21:54:27 ERROR:astrameter:Error: Invalid JSON
+Traceback (most recent call last):
+  File "/app/.venv/lib/python3.12/site-packages/astrameter/shelly/shelly.py", line 258, in _handle_request
+    request = json.loads(request_str)
+              ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/json/__init__.py", line 346, in loads
+    return _default_decoder.decode(s)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/json/decoder.py", line 338, in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/json/decoder.py", line 356, in raw_decode
+    raise JSONDecodeError("Expecting value", s, err.value) from None
+json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+2026-08-20 21:54:27 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 888
+2026-08-20 21:54:29 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 915
+2026-08-20 21:54:31 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 894
+2026-08-20 21:54:33 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 858
+2026-08-20 21:54:35 DEBUG:astrameter:Received UDP message: 45|HHM-2|ccc837b413f5||000000000000|0|0|77
+2026-08-20 21:54:35 DEBUG:astrameter:From: 192.168.10.32:22222
+2026-08-20 21:54:35 ERROR:astrameter:Error: Invalid JSON
+Traceback (most recent call last):
+  File "/app/.venv/lib/python3.12/site-packages/astrameter/shelly/shelly.py", line 258, in _handle_request
+    request = json.loads(request_str)
+              ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/json/__init__.py", line 346, in loads
+    return _default_decoder.decode(s)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/json/decoder.py", line 338, in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/json/decoder.py", line 356, in raw_decode
+    raise JSONDecodeError("Expecting value", s, err.value) from None
+json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+2026-08-20 21:54:35 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 816
+2026-08-20 21:54:37 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 780
+2026-08-20 21:54:39 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 765
+2026-08-20 21:54:41 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 795
+2026-08-20 21:54:43 DEBUG:astrameter:Received UDP message: 45|HHM-2|ccc837b413f5||000000000000|0|0|77
+2026-08-20 21:54:43 DEBUG:astrameter:From: 192.168.10.32:22222
+2026-08-20 21:54:43 ERROR:astrameter:Error: Invalid JSON
+Traceback (most recent call last):
+  File "/app/.venv/lib/python3.12/site-packages/astrameter/shelly/shelly.py", line 258, in _handle_request
+    request = json.loads(request_str)
+              ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/json/__init__.py", line 346, in loads
+    return _default_decoder.decode(s)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/json/decoder.py", line 338, in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/json/decoder.py", line 356, in raw_decode
+    raise JSONDecodeError("Expecting value", s, err.value) from None
+json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+2026-08-20 21:54:43 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 828
+2026-08-20 21:54:45 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 837
+2026-08-20 21:54:47 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 804
+2026-08-20 21:54:49 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 789
+2026-08-20 21:54:51 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 759
+2026-08-20 21:54:52 DEBUG:astrameter:Received UDP message: 45|HHM-2|ccc837b413f5||000000000000|0|0|77
+2026-08-20 21:54:52 DEBUG:astrameter:From: 192.168.10.32:22222
+2026-08-20 21:54:52 ERROR:astrameter:Error: Invalid JSON
+Traceback (most recent call last):
+  File "/app/.venv/lib/python3.12/site-packages/astrameter/shelly/shelly.py", line 258, in _handle_request
+    request = json.loads(request_str)
+              ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/json/__init__.py", line 346, in loads
+    return _default_decoder.decode(s)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/json/decoder.py", line 338, in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/json/decoder.py", line 356, in raw_decode
+    raise JSONDecodeError("Expecting value", s, err.value) from None
+json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+2026-08-20 21:54:53 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 771
+2026-08-20 21:54:55 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 828
+2026-08-20 21:54:57 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 867
+2026-08-20 21:54:59 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 876
+2026-08-20 21:54:59 DEBUG:astrameter:Received UDP message: 45|HHM-2|ccc837b413f5||000000000000|0|0|77
+2026-08-20 21:54:59 DEBUG:astrameter:From: 192.168.10.32:22222
+2026-08-20 21:54:59 ERROR:astrameter:Error: Invalid JSON
+Traceback (most recent call last):
+  File "/app/.venv/lib/python3.12/site-packages/astrameter/shelly/shelly.py", line 258, in _handle_request
+    request = json.loads(request_str)
+              ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/json/__init__.py", line 346, in loads
+    return _default_decoder.decode(s)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/json/decoder.py", line 338, in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/json/decoder.py", line 356, in raw_decode
+    raise JSONDecodeError("Expecting value", s, err.value) from None
+json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+2026-08-20 21:55:01 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 837
+2026-08-20 21:55:03 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 792
+2026-08-20 21:55:05 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 714
+2026-08-20 21:55:07 DEBUG:astrameter:Received UDP message: 45|HHM-2|ccc837b413f5||000000000000|0|0|77
+2026-08-20 21:55:07 DEBUG:astrameter:From: 192.168.10.32:22222
+2026-08-20 21:55:07 ERROR:astrameter:Error: Invalid JSON
+Traceback (most recent call last):
+  File "/app/.venv/lib/python3.12/site-packages/astrameter/shelly/shelly.py", line 258, in _handle_request
+    request = json.loads(request_str)
+              ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/json/__init__.py", line 346, in loads
+    return _default_decoder.decode(s)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/json/decoder.py", line 338, in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/json/decoder.py", line 356, in raw_decode
+    raise JSONDecodeError("Expecting value", s, err.value) from None
+json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+2026-08-20 21:55:07 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 702
+2026-08-20 21:55:09 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 720
+2026-08-20 21:55:11 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 753
+2026-08-20 21:55:13 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 765
+2026-08-20 21:55:15 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 777
+2026-08-20 21:55:17 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 783
+2026-08-20 21:55:19 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 1230
+2026-08-20 21:55:21 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 1512
+2026-08-20 21:55:23 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 1488
+2026-08-20 21:55:25 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 1458
+2026-08-20 21:55:27 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 1431
+2026-08-20 21:55:29 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 1404
+2026-08-20 21:55:31 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 1383
+2026-08-20 21:55:33 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 1404
+2026-08-20 21:55:35 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 1458
+2026-08-20 21:55:37 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 1524
+2026-08-20 21:55:39 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 1581
+2026-08-20 21:55:41 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 1620
+2026-08-20 21:55:43 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 1593
+2026-08-20 21:55:45 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 1554
+2026-08-20 21:55:47 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 786
+2026-08-20 21:55:49 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 669
+2026-08-20 21:55:51 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 672
+2026-08-20 21:55:53 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 690
+2026-08-20 21:55:55 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 711
+2026-08-20 21:55:58 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 732
+2026-08-20 21:56:00 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 720
+2026-08-20 21:56:02 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 714
+2026-08-20 21:56:04 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 678
+2026-08-20 21:56:06 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 666
+2026-08-20 21:56:08 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 660
+2026-08-20 21:56:12 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 678
+2026-08-20 21:56:14 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 696
+2026-08-20 21:56:16 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 717
+2026-08-20 21:56:18 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 756
+2026-08-20 21:56:20 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 768
+2026-08-20 21:56:22 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 765
+2026-08-20 21:56:24 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 732
+2026-08-20 21:56:26 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 705
+2026-08-20 21:56:28 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 672
+2026-08-20 21:56:30 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 666
+2026-08-20 21:56:32 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 678
+2026-08-20 21:56:34 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 696
+2026-08-20 21:56:36 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 705
+2026-08-20 21:56:38 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 714
+2026-08-20 21:56:40 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 732
+2026-08-20 21:56:42 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 753
+2026-08-20 21:56:44 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 729
+2026-08-20 21:56:46 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 726
+2026-08-20 21:56:48 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 714
+2026-08-20 21:56:50 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 693
+2026-08-20 21:56:52 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 681
+2026-08-20 21:56:54 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 669
+2026-08-20 21:56:56 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 681
+2026-08-20 21:56:58 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 690
+2026-08-20 21:57:00 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 720
+2026-08-20 21:57:02 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 762
+2026-08-20 21:57:04 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 774
+2026-08-20 21:57:06 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 768
+2026-08-20 21:57:07 INFO:astrameter:Battery inactive on Shelly UDP port 2220 for >= 120s: 192.168.10.32
+2026-08-20 21:57:10 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 738
+2026-08-20 21:57:12 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 720
+2026-08-20 21:57:14 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 690
+2026-08-20 21:57:16 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 663
+2026-08-20 21:57:18 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 666
+2026-08-20 21:57:20 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 672
+2026-08-20 21:57:22 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 693
+2026-08-20 21:57:24 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 720
+2026-08-20 21:57:26 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 729
+2026-08-20 21:57:28 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 738
+2026-08-20 21:57:30 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 708
+2026-08-20 21:57:32 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 684
+2026-08-20 21:57:34 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 672
+2026-08-20 21:57:36 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 657
+2026-08-20 21:57:38 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 666
+2026-08-20 21:57:40 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 669
+2026-08-20 21:57:42 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 684
+2026-08-20 21:57:44 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 732
+2026-08-20 21:57:46 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 762
+2026-08-20 21:57:48 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 792
+2026-08-20 21:57:50 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 762
+2026-08-20 21:57:52 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 717
+2026-08-20 21:57:54 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 672
+2026-08-20 21:57:56 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 654
+2026-08-20 21:57:58 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 672
+2026-08-20 21:58:00 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 702
+2026-08-20 21:58:02 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 720
+2026-08-20 21:58:04 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 729
+2026-08-20 21:58:06 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 702
+2026-08-20 21:58:08 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 678
+2026-08-20 21:58:10 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 657
+2026-08-20 21:58:12 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 663
+2026-08-20 21:58:14 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 702
+2026-08-20 21:58:16 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 738
+2026-08-20 21:58:18 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 774
+2026-08-20 21:58:20 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 924
+2026-08-20 21:58:22 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 1458
+2026-08-20 21:58:24 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 1455
+2026-08-20 21:58:26 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 1401
+2026-08-20 21:58:28 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 1392
+2026-08-20 21:58:30 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 1425
+2026-08-20 21:58:32 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 1437
+2026-08-20 21:58:34 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 1467
+2026-08-20 21:58:36 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 1419
+2026-08-20 21:58:38 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 1368
+2026-08-20 21:58:40 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 1338
+2026-08-20 21:58:42 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 1356
+2026-08-20 21:58:44 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 1419
+2026-08-20 21:58:48 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 699
+2026-08-20 21:58:52 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 669
+2026-08-20 21:58:54 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 636
+s6-rc: info: service legacy-services: stopping
+s6-rc: info: service legacy-services successfully stopped
+s6-rc: info: service legacy-cont-init: stopping
+s6-rc: info: service legacy-cont-init successfully stopped
+s6-rc: info: service fix-attrs: stopping
+s6-rc: info: service base-addon-log-level: stopping
+s6-rc: info: service base-addon-log-level successfully stopped
+s6-rc: info: service fix-attrs successfully stopped
+s6-rc: info: service base-addon-banner: stopping
+s6-rc: info: service base-addon-banner successfully stopped
+s6-rc: info: service s6rc-oneshot-runner: stopping
+s6-rc: info: service s6rc-oneshot-runner successfully stopped
+2026-08-20 21:58:56 INFO:astrameter:Stopping web server...
+2026-08-20 21:58:56 INFO:astrameter:Web server stopped
+2026-08-20 21:58:56 INFO:astrameter:MQTT Insights service stopped
+s6-rc: info: service s6rc-oneshot-runner: starting
+s6-rc: info: service s6rc-oneshot-runner successfully started
+s6-rc: info: service base-addon-banner: starting
+
+[34m-----------------------------------------------------------[0m
+[34m Add-on: AstraMeter[0m
+[34m "Replicates a Smart Meter device for Marstek energy storage systems (formerly B2500 Meter) while allowing integration with various smart meters."[0m
+[34m-----------------------------------------------------------[0m
+[34m Add-on version: 0.1.2[0m
+[32m You are running the latest version of this add-on.[0m
+[34m System: Home Assistant OS 15.2  (amd64 / qemux86-64)[0m
+[34m Home Assistant Core: 2026.8.2[0m
+[34m Home Assistant Supervisor: 2026.07.5[0m
+[34m-----------------------------------------------------------[0m
+[34m Please, share the above information when looking for help[0m
+[34m or support in, e.g., GitHub, forums or the Discord chat.[0m
+[34m-----------------------------------------------------------[0m
+s6-rc: info: service base-addon-banner successfully started
+s6-rc: info: service fix-attrs: starting
+s6-rc: info: service base-addon-log-level: starting
+s6-rc: info: service fix-attrs successfully started
+[34mLog level is set to DEBUG[0m
+s6-rc: info: service base-addon-log-level successfully started
+s6-rc: info: service legacy-cont-init: starting
+s6-rc: info: service legacy-cont-init successfully started
+s6-rc: info: service legacy-services: starting
+s6-rc: info: service legacy-services successfully started
+2026-08-20 21:59:04 INFO:astrameter:started astrameter application
+2026-08-20 21:59:04 INFO:astrameter:Git commit: 665a7f7bfa1d8a925b263e6f99ccb744443fe8ef
+2026-08-20 21:59:04 DEBUG:urllib3.connectionpool:Starting new HTTP connection (1): supervisor:80
+2026-08-20 21:59:04 DEBUG:urllib3.connectionpool:http://supervisor:80 "GET /services/mqtt HTTP/1.1" 200 214
+2026-08-20 21:59:04 DEBUG:urllib3.connectionpool:Starting new HTTP connection (1): supervisor:80
+2026-08-20 21:59:04 DEBUG:urllib3.connectionpool:http://supervisor:80 "GET /addons/self/info HTTP/1.1" 200 22923
+2026-08-20 21:59:04 INFO:astrameter:Resolved add-on slug for HA discovery: 3d34e6ac_b2500_meter
+2026-08-20 21:59:04 INFO:astrameter:Waiting for Home Assistant to be ready...
+2026-08-20 21:59:04 DEBUG:urllib3.connectionpool:Starting new HTTP connection (1): supervisor:80
+2026-08-20 21:59:04 DEBUG:urllib3.connectionpool:http://supervisor:80 "GET /core/api/ HTTP/1.1" 200 26
+2026-08-20 21:59:04 INFO:astrameter:Home Assistant is ready! Proceeding with AstraMeter startup...
+2026-08-20 21:59:04 INFO:astrameter:Effective configuration: GeneralSettings(device_types=['shellypro3em'], device_ids=[], skip_powermeter_test=False, dedupe_time_window=0.0, enable_web_server=True, web_config_enabled=None, web_server_port=52500, dashboard=True, dashboard_allow_write=True, dashboard_direct_access=False, dashboard_allowed_hosts='', signal=SignalSettings(offsets=None, multipliers=None, throttle_interval=0.0, wait_for_next_message=True, hampel_window=0, hampel_n_sigma=3.0, hampel_min_threshold=0.0, smooth_alpha=0.0, max_smooth_step=0.0, deadband=0.0, pid_kp=0.0, pid_ki=0.0, pid_kd=0.0, pid_output_max=800.0, pid_mode='bias'))
+2026-08-20 21:59:04 DEBUG:urllib3.connectionpool:Starting new HTTP connection (1): supervisor:80
+2026-08-20 21:59:04 DEBUG:urllib3.connectionpool:http://supervisor:80 "GET /addons/self/info HTTP/1.1" 200 22923
+2026-08-20 21:59:04 INFO:astrameter:Resolved add-on slug for HA discovery: 3d34e6ac_b2500_meter
+2026-08-20 21:59:04 DEBUG:asyncio:Using selector: EpollSelector
+2026-08-20 21:59:04 INFO:astrameter:Starting web server...
+2026-08-20 21:59:04 INFO:astrameter:Web server started on 0.0.0.0:52500
+2026-08-20 21:59:04 INFO:astrameter:Dashboard enabled (config mode: ha_simple)
+2026-08-20 21:59:04 INFO:astrameter:Device Types: ['shellypro3em_old', 'shellypro3em_new']
+2026-08-20 21:59:04 INFO:astrameter:Device IDs: ['shellypro3em-ec4609c439c1', 'shellypro3em-ec4609c439c1']
+2026-08-20 21:59:04 INFO:astrameter:Skip Test: False
+2026-08-20 21:59:04 DEBUG:astrameter:Testing powermeter configuration... (attempt 1/4)
+2026-08-20 21:59:04 INFO:astrameter:Home Assistant WebSocket connected to supervisor
+2026-08-20 21:59:04 DEBUG:astrameter:Home Assistant: auth required, sending token
+2026-08-20 21:59:04 INFO:astrameter:Home Assistant: authenticated
+2026-08-20 21:59:04 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_laden, 0
+2026-08-20 21:59:04 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 630
+2026-08-20 21:59:04 INFO:astrameter:Successfully fetched HomeAssistant powermeter value (filter 0.0.0.0/0): 630.0W
+2026-08-20 21:59:04 INFO:astrameter:Using Home Assistant's internal MQTT broker
+2026-08-20 21:59:04 INFO:astrameter:MQTT Insights service started
+2026-08-20 21:59:04 DEBUG:astrameter:Starting device: shellypro3em_old
+2026-08-20 21:59:04 DEBUG:astrameter:Shelly Pro 3EM Settings:
+2026-08-20 21:59:04 DEBUG:astrameter:Device ID: shellypro3em-ec4609c439c1
+2026-08-20 21:59:04 DEBUG:astrameter:Starting device: shellypro3em_new
+2026-08-20 21:59:04 DEBUG:astrameter:Shelly Pro 3EM Settings:
+2026-08-20 21:59:04 DEBUG:astrameter:Device ID: shellypro3em-ec4609c439c1
+2026-08-20 21:59:04 INFO:astrameter:Shelly emulator listening on UDP port 1010...
+2026-08-20 21:59:04 INFO:astrameter:Shelly emulator listening on UDP port 2220...
+2026-08-20 21:59:04 INFO:astrameter:CT002 compatibility mode enabled on UDP port 2220 for CT-framed Shelly discovery
+2026-08-20 21:59:04 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 630
+2026-08-20 21:59:04 INFO:astrameter:MQTT Insights connected to core-mosquitto:1883
+2026-08-20 21:59:04 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 654
+2026-08-20 21:59:06 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 642
+2026-08-20 21:59:08 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 660
+2026-08-20 21:59:12 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 666
+2026-08-20 21:59:14 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 660
+2026-08-20 21:59:16 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 636
+2026-08-20 21:59:18 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 627
+2026-08-20 21:59:20 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 609
+2026-08-20 21:59:22 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 597
+2026-08-20 21:59:24 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 618
+2026-08-20 21:59:26 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 630
+2026-08-20 21:59:28 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 651
+2026-08-20 21:59:30 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 672
+2026-08-20 21:59:32 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 684
+2026-08-20 21:59:34 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 705
+2026-08-20 21:59:36 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 696
+2026-08-20 21:59:38 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 681
+2026-08-20 21:59:40 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 666
+2026-08-20 21:59:42 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 633
+2026-08-20 21:59:44 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 618
+2026-08-20 21:59:46 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 621
+2026-08-20 21:59:48 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 609
+2026-08-20 21:59:50 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 627
+2026-08-20 21:59:52 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 639
+2026-08-20 21:59:54 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 657
+2026-08-20 21:59:56 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 663
+2026-08-20 21:59:58 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 666
+2026-08-20 22:00:00 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 669
+2026-08-20 22:00:02 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 672
+2026-08-20 22:00:04 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 666
+2026-08-20 22:00:06 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 669
+2026-08-20 22:00:08 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 663
+2026-08-20 22:00:10 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 639
+2026-08-20 22:00:12 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 615
+2026-08-20 22:00:14 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 738
+2026-08-20 22:00:16 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 1371
+2026-08-20 22:00:19 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 1539
+2026-08-20 22:00:21 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 1482
+2026-08-20 22:00:23 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 1359
+2026-08-20 22:00:25 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 1317
+2026-08-20 22:00:27 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 1383
+2026-08-20 22:00:29 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 1464
+2026-08-20 22:00:31 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 1437
+2026-08-20 22:00:33 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 1344
+2026-08-20 22:00:35 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 1407
+2026-08-20 22:00:37 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 1545
+2026-08-20 22:00:39 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 1437
+2026-08-20 22:00:41 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 1317
+2026-08-20 22:00:43 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 1437
+2026-08-20 22:00:45 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 663
+2026-08-20 22:00:47 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 606
+2026-08-20 22:00:49 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 660
+2026-08-20 22:00:51 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 699
+2026-08-20 22:00:53 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 630
+2026-08-20 22:00:55 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 618
+2026-08-20 22:00:57 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 669
+2026-08-20 22:00:59 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 612
+2026-08-20 22:01:01 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 633
+2026-08-20 22:01:03 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 705
+2026-08-20 22:01:05 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 642
+2026-08-20 22:01:07 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 603
+2026-08-20 22:01:09 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 645

@@ -1,0 +1,216 @@
+2026-08-20 22:22:26 DEBUG:astrameter:CT002 response to ('192.168.10.32', 22222): 010239317c484d452d347c3032623235306332316335667c48484d2d327c6363633833376234313366357c3637327c307c307c3637327c317c307c307c307c2d35307c367c307c307c307c307c307c307c307c307c307c30033433 (fields=['HME-4', '02b250c21c5f', 'HHM-2', 'ccc837b413f5', '672', '0', '0', '672', '1', '0', '0', '0', '-50', '6', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0'])
+2026-08-20 22:22:28 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 675
+2026-08-20 22:22:29 DEBUG:astrameter:CT002 request from ('192.168.10.32', 22222): 010234357c48484d2d327c6363633833376234313366357c7c3030303030303030303030307c307c307c033737
+2026-08-20 22:22:29 DEBUG:astrameter:CT002 request from ('192.168.10.32', 22222) in inspection mode (phase='0')
+2026-08-20 22:22:29 DEBUG:astrameter:CT002 parsed fields from ('192.168.10.32', 22222): meter_dev_type=HHM-2 meter_mac=ccc837b413f5 ct_type= ct_mac=000000000000 phase='0' power=0 consumer_id=ccc837b413f5 in inspection mode
+2026-08-20 22:22:30 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 684
+2026-08-20 22:22:30 DEBUG:astrameter:CT002 response to ('192.168.10.32', 22222): 010239317c484d452d347c3032623235306332316335667c48484d2d327c6363633833376234313366357c3638347c307c307c3638347c317c307c307c307c2d35307c377c307c307c307c307c307c307c307c307c307c30033432 (fields=['HME-4', '02b250c21c5f', 'HHM-2', 'ccc837b413f5', '684', '0', '0', '684', '1', '0', '0', '0', '-50', '7', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0'])
+2026-08-20 22:22:32 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 690
+2026-08-20 22:22:33 DEBUG:astrameter:CT002 request from ('192.168.10.32', 22222): 010234357c48484d2d327c6363633833376234313366357c7c3030303030303030303030307c307c307c033737
+2026-08-20 22:22:33 DEBUG:astrameter:CT002 request from ('192.168.10.32', 22222) in inspection mode (phase='0')
+2026-08-20 22:22:33 DEBUG:astrameter:CT002 parsed fields from ('192.168.10.32', 22222): meter_dev_type=HHM-2 meter_mac=ccc837b413f5 ct_type= ct_mac=000000000000 phase='0' power=0 consumer_id=ccc837b413f5 in inspection mode
+2026-08-20 22:22:34 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 702
+2026-08-20 22:22:34 DEBUG:astrameter:CT002 response to ('192.168.10.32', 22222): 010239317c484d452d347c3032623235306332316335667c48484d2d327c6363633833376234313366357c3730327c307c307c3730327c317c307c307c307c2d35307c387c307c307c307c307c307c307c307c307c307c30033464 (fields=['HME-4', '02b250c21c5f', 'HHM-2', 'ccc837b413f5', '702', '0', '0', '702', '1', '0', '0', '0', '-50', '8', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0'])
+2026-08-20 22:22:36 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 699
+2026-08-20 22:22:38 DEBUG:astrameter:CT002 request from ('192.168.10.32', 22222): 010234357c48484d2d327c6363633833376234313366357c7c3030303030303030303030307c307c307c033737
+2026-08-20 22:22:38 DEBUG:astrameter:CT002 request from ('192.168.10.32', 22222) in inspection mode (phase='0')
+2026-08-20 22:22:38 DEBUG:astrameter:CT002 parsed fields from ('192.168.10.32', 22222): meter_dev_type=HHM-2 meter_mac=ccc837b413f5 ct_type= ct_mac=000000000000 phase='0' power=0 consumer_id=ccc837b413f5 in inspection mode
+2026-08-20 22:22:40 DEBUG:astrameter:Powermeter HomeAssistant produced no fresh message within 2s; serving last known value
+2026-08-20 22:22:40 DEBUG:astrameter:CT002 response to ('192.168.10.32', 22222): 010239317c484d452d347c3032623235306332316335667c48484d2d327c6363633833376234313366357c3639397c307c307c3639397c317c307c307c307c2d35307c397c307c307c307c307c307c307c307c307c307c30033463 (fields=['HME-4', '02b250c21c5f', 'HHM-2', 'ccc837b413f5', '699', '0', '0', '699', '1', '0', '0', '0', '-50', '9', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0'])
+2026-08-20 22:22:44 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 690
+2026-08-20 22:22:46 DEBUG:astrameter:CT002 request from ('192.168.10.32', 22222): 010234357c48484d2d327c6363633833376234313366357c7c3030303030303030303030307c307c307c033737
+2026-08-20 22:22:46 DEBUG:astrameter:CT002 request from ('192.168.10.32', 22222) in inspection mode (phase='0')
+2026-08-20 22:22:46 DEBUG:astrameter:CT002 parsed fields from ('192.168.10.32', 22222): meter_dev_type=HHM-2 meter_mac=ccc837b413f5 ct_type= ct_mac=000000000000 phase='0' power=0 consumer_id=ccc837b413f5 in inspection mode
+2026-08-20 22:22:46 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 1431
+2026-08-20 22:22:46 DEBUG:astrameter:CT002 response to ('192.168.10.32', 22222): 010239347c484d452d347c3032623235306332316335667c48484d2d327c6363633833376234313366357c313433317c307c307c313433317c317c307c307c307c2d35307c31307c307c307c307c307c307c307c307c307c307c30033731 (fields=['HME-4', '02b250c21c5f', 'HHM-2', 'ccc837b413f5', '1431', '0', '0', '1431', '1', '0', '0', '0', '-50', '10', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0'])
+2026-08-20 22:22:48 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 1557
+2026-08-20 22:22:50 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 1542
+2026-08-20 22:22:52 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 1527
+2026-08-20 22:22:52 DEBUG:astrameter:CT002 request from ('192.168.10.32', 22222): 010234357c48484d2d327c6363633833376234313366357c7c3030303030303030303030307c307c307c033737
+2026-08-20 22:22:52 DEBUG:astrameter:CT002 request from ('192.168.10.32', 22222) in inspection mode (phase='0')
+2026-08-20 22:22:52 DEBUG:astrameter:CT002 parsed fields from ('192.168.10.32', 22222): meter_dev_type=HHM-2 meter_mac=ccc837b413f5 ct_type= ct_mac=000000000000 phase='0' power=0 consumer_id=ccc837b413f5 in inspection mode
+2026-08-20 22:22:54 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 1500
+2026-08-20 22:22:54 DEBUG:astrameter:CT002 response to ('192.168.10.32', 22222): 010239347c484d452d347c3032623235306332316335667c48484d2d327c6363633833376234313366357c313530307c307c307c313530307c317c307c307c307c2d35307c31317c307c307c307c307c307c307c307c307c307c30033730 (fields=['HME-4', '02b250c21c5f', 'HHM-2', 'ccc837b413f5', '1500', '0', '0', '1500', '1', '0', '0', '0', '-50', '11', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0'])
+2026-08-20 22:22:56 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 1461
+2026-08-20 22:22:58 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 1434
+2026-08-20 22:23:00 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 1395
+2026-08-20 22:23:00 DEBUG:astrameter:CT002 request from ('192.168.10.32', 22222): 010234357c48484d2d327c6363633833376234313366357c7c3030303030303030303030307c307c307c033737
+2026-08-20 22:23:00 DEBUG:astrameter:CT002 request from ('192.168.10.32', 22222) in inspection mode (phase='0')
+2026-08-20 22:23:00 DEBUG:astrameter:CT002 parsed fields from ('192.168.10.32', 22222): meter_dev_type=HHM-2 meter_mac=ccc837b413f5 ct_type= ct_mac=000000000000 phase='0' power=0 consumer_id=ccc837b413f5 in inspection mode
+2026-08-20 22:23:02 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 1368
+2026-08-20 22:23:02 DEBUG:astrameter:CT002 response to ('192.168.10.32', 22222): 010239347c484d452d347c3032623235306332316335667c48484d2d327c6363633833376234313366357c313336387c307c307c313336387c317c307c307c307c2d35307c31327c307c307c307c307c307c307c307c307c307c30033733 (fields=['HME-4', '02b250c21c5f', 'HHM-2', 'ccc837b413f5', '1368', '0', '0', '1368', '1', '0', '0', '0', '-50', '12', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0'])
+2026-08-20 22:23:04 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 1359
+2026-08-20 22:23:06 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 1350
+2026-08-20 22:23:08 DEBUG:astrameter:CT002 request from ('192.168.10.32', 22222): 010234357c48484d2d327c6363633833376234313366357c7c3030303030303030303030307c307c307c033737
+2026-08-20 22:23:08 DEBUG:astrameter:CT002 request from ('192.168.10.32', 22222) in inspection mode (phase='0')
+2026-08-20 22:23:08 DEBUG:astrameter:CT002 parsed fields from ('192.168.10.32', 22222): meter_dev_type=HHM-2 meter_mac=ccc837b413f5 ct_type= ct_mac=000000000000 phase='0' power=0 consumer_id=ccc837b413f5 in inspection mode
+2026-08-20 22:23:10 DEBUG:astrameter:Powermeter HomeAssistant produced no fresh message within 2s; serving last known value
+2026-08-20 22:23:10 DEBUG:astrameter:CT002 response to ('192.168.10.32', 22222): 010239347c484d452d347c3032623235306332316335667c48484d2d327c6363633833376234313366357c313335307c307c307c313335307c317c307c307c307c2d35307c31337c307c307c307c307c307c307c307c307c307c30033732 (fields=['HME-4', '02b250c21c5f', 'HHM-2', 'ccc837b413f5', '1350', '0', '0', '1350', '1', '0', '0', '0', '-50', '13', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0'])
+2026-08-20 22:23:14 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 633
+2026-08-20 22:23:16 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 903
+2026-08-20 22:23:17 DEBUG:astrameter:CT002 request from ('192.168.10.32', 22222): 010234357c48484d2d327c6363633833376234313366357c7c3030303030303030303030307c307c307c033737
+2026-08-20 22:23:17 DEBUG:astrameter:CT002 request from ('192.168.10.32', 22222) in inspection mode (phase='0')
+2026-08-20 22:23:17 DEBUG:astrameter:CT002 parsed fields from ('192.168.10.32', 22222): meter_dev_type=HHM-2 meter_mac=ccc837b413f5 ct_type= ct_mac=000000000000 phase='0' power=0 consumer_id=ccc837b413f5 in inspection mode
+2026-08-20 22:23:18 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 1317
+2026-08-20 22:23:18 DEBUG:astrameter:CT002 response to ('192.168.10.32', 22222): 010239347c484d452d347c3032623235306332316335667c48484d2d327c6363633833376234313366357c313331377c307c307c313331377c317c307c307c307c2d35307c31347c307c307c307c307c307c307c307c307c307c30033735 (fields=['HME-4', '02b250c21c5f', 'HHM-2', 'ccc837b413f5', '1317', '0', '0', '1317', '1', '0', '0', '0', '-50', '14', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0'])
+2026-08-20 22:23:19 INFO:astrameter:Dashboard control: shellypro3em-ec4609c439c1 ccc837b413f5.distribution_weight = 1.3 by Admin (b09a063fe8d54c0e9e90284a3098dbb8)
+2026-08-20 22:23:20 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 1338
+2026-08-20 22:23:21 INFO:astrameter:Dashboard control: shellypro3em-ec4609c439c1 ccc837b413f5.distribution_weight = 0.9 by Admin (b09a063fe8d54c0e9e90284a3098dbb8)
+2026-08-20 22:23:21 INFO:astrameter:Dashboard control: shellypro3em-ec4609c439c1 ccc837b413f5.distribution_weight = 1 by Admin (b09a063fe8d54c0e9e90284a3098dbb8)
+2026-08-20 22:23:22 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 1335
+2026-08-20 22:23:24 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 1323
+2026-08-20 22:23:25 DEBUG:astrameter:CT002 request from ('192.168.10.32', 22222): 010234357c48484d2d327c6363633833376234313366357c7c3030303030303030303030307c307c307c033737
+2026-08-20 22:23:25 DEBUG:astrameter:CT002 request from ('192.168.10.32', 22222) in inspection mode (phase='0')
+2026-08-20 22:23:25 DEBUG:astrameter:CT002 parsed fields from ('192.168.10.32', 22222): meter_dev_type=HHM-2 meter_mac=ccc837b413f5 ct_type= ct_mac=000000000000 phase='0' power=0 consumer_id=ccc837b413f5 in inspection mode
+2026-08-20 22:23:26 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 1326
+2026-08-20 22:23:26 DEBUG:astrameter:CT002 response to ('192.168.10.32', 22222): 010239347c484d452d347c3032623235306332316335667c48484d2d327c6363633833376234313366357c313332367c307c307c313332367c317c307c307c307c2d35307c31357c307c307c307c307c307c307c307c307c307c30033734 (fields=['HME-4', '02b250c21c5f', 'HHM-2', 'ccc837b413f5', '1326', '0', '0', '1326', '1', '0', '0', '0', '-50', '15', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0'])
+2026-08-20 22:23:28 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 1323
+2026-08-20 22:23:32 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 1326
+2026-08-20 22:23:33 DEBUG:astrameter:CT002 request from ('192.168.10.32', 22222): 010234357c48484d2d327c6363633833376234313366357c7c3030303030303030303030307c307c307c033737
+2026-08-20 22:23:33 DEBUG:astrameter:CT002 request from ('192.168.10.32', 22222) in inspection mode (phase='0')
+2026-08-20 22:23:33 DEBUG:astrameter:CT002 parsed fields from ('192.168.10.32', 22222): meter_dev_type=HHM-2 meter_mac=ccc837b413f5 ct_type= ct_mac=000000000000 phase='0' power=0 consumer_id=ccc837b413f5 in inspection mode
+2026-08-20 22:23:34 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 1329
+2026-08-20 22:23:34 DEBUG:astrameter:CT002 response to ('192.168.10.32', 22222): 010239347c484d452d347c3032623235306332316335667c48484d2d327c6363633833376234313366357c313332397c307c307c313332397c317c307c307c307c2d35307c31367c307c307c307c307c307c307c307c307c307c30033737 (fields=['HME-4', '02b250c21c5f', 'HHM-2', 'ccc837b413f5', '1329', '0', '0', '1329', '1', '0', '0', '0', '-50', '16', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0'])
+2026-08-20 22:23:38 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 1335
+2026-08-20 22:23:40 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 1347
+2026-08-20 22:23:41 DEBUG:astrameter:CT002 request from ('192.168.10.32', 22222): 010234357c48484d2d327c6363633833376234313366357c7c3030303030303030303030307c307c307c033737
+2026-08-20 22:23:41 DEBUG:astrameter:CT002 request from ('192.168.10.32', 22222) in inspection mode (phase='0')
+2026-08-20 22:23:41 DEBUG:astrameter:CT002 parsed fields from ('192.168.10.32', 22222): meter_dev_type=HHM-2 meter_mac=ccc837b413f5 ct_type= ct_mac=000000000000 phase='0' power=0 consumer_id=ccc837b413f5 in inspection mode
+2026-08-20 22:23:42 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 1368
+2026-08-20 22:23:42 DEBUG:astrameter:CT002 response to ('192.168.10.32', 22222): 010239347c484d452d347c3032623235306332316335667c48484d2d327c6363633833376234313366357c313336387c307c307c313336387c317c307c307c307c2d35307c31377c307c307c307c307c307c307c307c307c307c30033736 (fields=['HME-4', '02b250c21c5f', 'HHM-2', 'ccc837b413f5', '1368', '0', '0', '1368', '1', '0', '0', '0', '-50', '17', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0'])
+s6-rc: info: service legacy-services: stopping
+s6-rc: info: service legacy-services successfully stopped
+s6-rc: info: service legacy-cont-init: stopping
+s6-rc: info: service legacy-cont-init successfully stopped
+s6-rc: info: service fix-attrs: stopping
+s6-rc: info: service base-addon-log-level: stopping
+s6-rc: info: service fix-attrs successfully stopped
+s6-rc: info: service base-addon-log-level successfully stopped
+s6-rc: info: service base-addon-banner: stopping
+s6-rc: info: service base-addon-banner successfully stopped
+s6-rc: info: service s6rc-oneshot-runner: stopping
+s6-rc: info: service s6rc-oneshot-runner successfully stopped
+2026-08-20 22:23:43 INFO:astrameter:Stopping web server...
+2026-08-20 22:23:43 INFO:astrameter:Web server stopped
+2026-08-20 22:23:43 INFO:astrameter:MQTT Insights service stopped
+s6-rc: info: service s6rc-oneshot-runner: starting
+s6-rc: info: service s6rc-oneshot-runner successfully started
+s6-rc: info: service base-addon-banner: starting
+
+[34m-----------------------------------------------------------[0m
+[34m Add-on: AstraMeter[0m
+[34m "Replicates a Smart Meter device for Marstek energy storage systems (formerly B2500 Meter) while allowing integration with various smart meters."[0m
+[34m-----------------------------------------------------------[0m
+[34m Add-on version: 0.1.3[0m
+[32m You are running the latest version of this add-on.[0m
+[34m System: Home Assistant OS 15.2  (amd64 / qemux86-64)[0m
+[34m Home Assistant Core: 2026.8.2[0m
+[34m Home Assistant Supervisor: 2026.07.5[0m
+[34m-----------------------------------------------------------[0m
+[34m Please, share the above information when looking for help[0m
+[34m or support in, e.g., GitHub, forums or the Discord chat.[0m
+[34m-----------------------------------------------------------[0m
+s6-rc: info: service base-addon-banner successfully started
+s6-rc: info: service fix-attrs: starting
+s6-rc: info: service base-addon-log-level: starting
+s6-rc: info: service fix-attrs successfully started
+[34mLog level is set to DEBUG[0m
+s6-rc: info: service base-addon-log-level successfully started
+s6-rc: info: service legacy-cont-init: starting
+s6-rc: info: service legacy-cont-init successfully started
+s6-rc: info: service legacy-services: starting
+s6-rc: info: service legacy-services successfully started
+2026-08-20 22:23:50 INFO:astrameter:started astrameter application
+2026-08-20 22:23:50 INFO:astrameter:Git commit: 09ceaa9341c179221e5ef2be52f80c26b280082b
+2026-08-20 22:23:50 DEBUG:urllib3.connectionpool:Starting new HTTP connection (1): supervisor:80
+2026-08-20 22:23:50 DEBUG:urllib3.connectionpool:http://supervisor:80 "GET /services/mqtt HTTP/1.1" 200 214
+2026-08-20 22:23:50 DEBUG:urllib3.connectionpool:Starting new HTTP connection (1): supervisor:80
+2026-08-20 22:23:50 DEBUG:urllib3.connectionpool:http://supervisor:80 "GET /addons/self/info HTTP/1.1" 200 23085
+2026-08-20 22:23:50 INFO:astrameter:Resolved add-on slug for HA discovery: 3d34e6ac_b2500_meter
+2026-08-20 22:23:50 INFO:astrameter:Waiting for Home Assistant to be ready...
+2026-08-20 22:23:50 DEBUG:urllib3.connectionpool:Starting new HTTP connection (1): supervisor:80
+2026-08-20 22:23:50 DEBUG:urllib3.connectionpool:http://supervisor:80 "GET /core/api/ HTTP/1.1" 200 26
+2026-08-20 22:23:50 INFO:astrameter:Home Assistant is ready! Proceeding with AstraMeter startup...
+2026-08-20 22:23:50 INFO:astrameter:Effective configuration: GeneralSettings(device_types=['shellypro3em'], device_ids=[], skip_powermeter_test=False, dedupe_time_window=0.0, enable_web_server=True, web_config_enabled=None, web_server_port=52500, dashboard=True, dashboard_allow_write=True, dashboard_direct_access=False, dashboard_allowed_hosts='', signal=SignalSettings(offsets=None, multipliers=None, throttle_interval=0.0, wait_for_next_message=True, hampel_window=0, hampel_n_sigma=3.0, hampel_min_threshold=0.0, smooth_alpha=0.0, max_smooth_step=0.0, deadband=0.0, pid_kp=0.0, pid_ki=0.0, pid_kd=0.0, pid_output_max=800.0, pid_mode='bias'))
+2026-08-20 22:23:50 DEBUG:urllib3.connectionpool:Starting new HTTP connection (1): supervisor:80
+2026-08-20 22:23:50 DEBUG:urllib3.connectionpool:http://supervisor:80 "GET /addons/self/info HTTP/1.1" 200 23085
+2026-08-20 22:23:50 INFO:astrameter:Resolved add-on slug for HA discovery: 3d34e6ac_b2500_meter
+2026-08-20 22:23:50 DEBUG:asyncio:Using selector: EpollSelector
+2026-08-20 22:23:50 INFO:astrameter:Starting web server...
+2026-08-20 22:23:50 INFO:astrameter:Web server started on 0.0.0.0:52500
+2026-08-20 22:23:50 INFO:astrameter:Dashboard enabled (config mode: ha_simple)
+2026-08-20 22:23:50 INFO:astrameter:Device Types: ['shellypro3em_old', 'shellypro3em_new']
+2026-08-20 22:23:50 INFO:astrameter:Device IDs: ['shellypro3em-ec4609c439c1', 'shellypro3em-ec4609c439c1']
+2026-08-20 22:23:50 INFO:astrameter:Skip Test: False
+2026-08-20 22:23:56 INFO:astrameter.marstek_api:Marstek managed ct002 already exists (devid=02b250c21c5f, mac=02b250c21c5f, type=HME-4)
+2026-08-20 22:23:56 INFO:astrameter:Managed fake CT registration completed. Fake CT devices appear as offline in the Marstek app CT list (this is expected).
+2026-08-20 22:23:56 INFO:astrameter:Pairing hint: refresh the CT device list (or log out/in if needed), select AstraMeter CT002, switch battery mode to Automatic, and choose that CT. The CT should be selectable as soon as it appears in the device list.
+2026-08-20 22:23:56 INFO:astrameter:Credentials are only needed for one-time registration. You can remove MARSTEK mailbox/password from config now.
+2026-08-20 22:23:56 DEBUG:astrameter:Testing powermeter configuration... (attempt 1/4)
+2026-08-20 22:23:56 INFO:astrameter:Home Assistant WebSocket connected to supervisor
+2026-08-20 22:23:56 DEBUG:astrameter:Home Assistant: auth required, sending token
+2026-08-20 22:23:56 INFO:astrameter:Home Assistant: authenticated
+2026-08-20 22:23:56 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_laden, 0
+2026-08-20 22:23:56 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 696
+2026-08-20 22:23:56 INFO:astrameter:Successfully fetched HomeAssistant powermeter value (filter 0.0.0.0/0): 696.0W
+2026-08-20 22:23:56 INFO:astrameter:Using Home Assistant's internal MQTT broker
+2026-08-20 22:23:56 INFO:astrameter:MQTT Insights service started
+2026-08-20 22:23:56 DEBUG:astrameter:Starting device: shellypro3em_old
+2026-08-20 22:23:56 DEBUG:astrameter:Shelly Pro 3EM Settings:
+2026-08-20 22:23:56 DEBUG:astrameter:Device ID: shellypro3em-ec4609c439c1
+2026-08-20 22:23:56 DEBUG:astrameter:Starting device: shellypro3em_new
+2026-08-20 22:23:56 DEBUG:astrameter:Shelly Pro 3EM Settings:
+2026-08-20 22:23:56 DEBUG:astrameter:Device ID: shellypro3em-ec4609c439c1
+2026-08-20 22:23:56 INFO:astrameter:Venus E Mini HME-4 identity: 02b250c21c5f (registered with Marstek)
+2026-08-20 22:23:56 INFO:astrameter:Shelly emulator listening on UDP port 1010...
+2026-08-20 22:23:56 INFO:astrameter:Shelly emulator listening on UDP port 2220...
+2026-08-20 22:23:56 INFO:astrameter:CT002 compatibility mode enabled on UDP port 2220 for CT-framed Shelly discovery
+2026-08-20 22:23:56 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 696
+2026-08-20 22:23:56 INFO:astrameter:MQTT Insights connected to core-mosquitto:1883
+2026-08-20 22:23:56 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 702
+2026-08-20 22:23:57 INFO:astrameter:CT-framed battery detected on Shelly UDP port 2220: 192.168.10.32; using CT002 compatibility mode
+2026-08-20 22:23:57 DEBUG:astrameter:CT002 request from ('192.168.10.32', 22222): 010234357c48484d2d327c6363633833376234313366357c7c3030303030303030303030307c307c307c033737
+2026-08-20 22:23:57 DEBUG:astrameter:CT002 request from ('192.168.10.32', 22222) in inspection mode (phase='0')
+2026-08-20 22:23:57 DEBUG:astrameter:CT002 parsed fields from ('192.168.10.32', 22222): meter_dev_type=HHM-2 meter_mac=ccc837b413f5 ct_type= ct_mac=000000000000 phase='0' power=0 consumer_id=ccc837b413f5 in inspection mode
+2026-08-20 22:23:58 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 681
+2026-08-20 22:23:58 DEBUG:astrameter:CT002 response to ('192.168.10.32', 22222): 010239317c484d452d347c3032623235306332316335667c48484d2d327c6363633833376234313366357c3638317c307c307c3638317c317c307c307c307c2d35307c307c307c307c307c307c307c307c307c307c307c30033435 (fields=['HME-4', '02b250c21c5f', 'HHM-2', 'ccc837b413f5', '681', '0', '0', '681', '1', '0', '0', '0', '-50', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0'])
+2026-08-20 22:24:00 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 663
+2026-08-20 22:24:01 DEBUG:astrameter:CT002 request from ('192.168.10.32', 22222): 010234357c48484d2d327c6363633833376234313366357c7c3030303030303030303030307c307c307c033737
+2026-08-20 22:24:01 DEBUG:astrameter:CT002 request from ('192.168.10.32', 22222) in inspection mode (phase='0')
+2026-08-20 22:24:01 DEBUG:astrameter:CT002 parsed fields from ('192.168.10.32', 22222): meter_dev_type=HHM-2 meter_mac=ccc837b413f5 ct_type= ct_mac=000000000000 phase='0' power=0 consumer_id=ccc837b413f5 in inspection mode
+2026-08-20 22:24:02 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 645
+2026-08-20 22:24:02 DEBUG:astrameter:CT002 response to ('192.168.10.32', 22222): 010239317c484d452d347c3032623235306332316335667c48484d2d327c6363633833376234313366357c3634357c307c307c3634357c317c307c307c307c2d35307c317c307c307c307c307c307c307c307c307c307c30033434 (fields=['HME-4', '02b250c21c5f', 'HHM-2', 'ccc837b413f5', '645', '0', '0', '645', '1', '0', '0', '0', '-50', '1', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0'])
+2026-08-20 22:24:04 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 639
+2026-08-20 22:24:05 DEBUG:astrameter:CT002 request from ('192.168.10.32', 22222): 010234357c48484d2d327c6363633833376234313366357c7c3030303030303030303030307c307c307c033737
+2026-08-20 22:24:05 DEBUG:astrameter:CT002 request from ('192.168.10.32', 22222) in inspection mode (phase='0')
+2026-08-20 22:24:05 DEBUG:astrameter:CT002 parsed fields from ('192.168.10.32', 22222): meter_dev_type=HHM-2 meter_mac=ccc837b413f5 ct_type= ct_mac=000000000000 phase='0' power=0 consumer_id=ccc837b413f5 in inspection mode
+2026-08-20 22:24:06 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 636
+2026-08-20 22:24:06 DEBUG:astrameter:CT002 response to ('192.168.10.32', 22222): 010239317c484d452d347c3032623235306332316335667c48484d2d327c6363633833376234313366357c3633367c307c307c3633367c317c307c307c307c2d35307c327c307c307c307c307c307c307c307c307c307c30033437 (fields=['HME-4', '02b250c21c5f', 'HHM-2', 'ccc837b413f5', '636', '0', '0', '636', '1', '0', '0', '0', '-50', '2', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0'])
+2026-08-20 22:24:08 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 627
+2026-08-20 22:24:09 DEBUG:astrameter:CT002 request from ('192.168.10.32', 22222): 010234357c48484d2d327c6363633833376234313366357c7c3030303030303030303030307c307c307c033737
+2026-08-20 22:24:09 DEBUG:astrameter:CT002 request from ('192.168.10.32', 22222) in inspection mode (phase='0')
+2026-08-20 22:24:09 DEBUG:astrameter:CT002 parsed fields from ('192.168.10.32', 22222): meter_dev_type=HHM-2 meter_mac=ccc837b413f5 ct_type= ct_mac=000000000000 phase='0' power=0 consumer_id=ccc837b413f5 in inspection mode
+2026-08-20 22:24:10 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 630
+2026-08-20 22:24:10 DEBUG:astrameter:CT002 response to ('192.168.10.32', 22222): 010239317c484d452d347c3032623235306332316335667c48484d2d327c6363633833376234313366357c3633307c307c307c3633307c317c307c307c307c2d35307c337c307c307c307c307c307c307c307c307c307c30033436 (fields=['HME-4', '02b250c21c5f', 'HHM-2', 'ccc837b413f5', '630', '0', '0', '630', '1', '0', '0', '0', '-50', '3', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0'])
+2026-08-20 22:24:13 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 627
+2026-08-20 22:24:13 DEBUG:astrameter:CT002 request from ('192.168.10.32', 22222): 010234357c48484d2d327c6363633833376234313366357c7c3030303030303030303030307c307c307c033737
+2026-08-20 22:24:13 DEBUG:astrameter:CT002 request from ('192.168.10.32', 22222) in inspection mode (phase='0')
+2026-08-20 22:24:13 DEBUG:astrameter:CT002 parsed fields from ('192.168.10.32', 22222): meter_dev_type=HHM-2 meter_mac=ccc837b413f5 ct_type= ct_mac=000000000000 phase='0' power=0 consumer_id=ccc837b413f5 in inspection mode
+2026-08-20 22:24:15 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 651
+2026-08-20 22:24:15 DEBUG:astrameter:CT002 response to ('192.168.10.32', 22222): 010239317c484d452d347c3032623235306332316335667c48484d2d327c6363633833376234313366357c3635317c307c307c3635317c317c307c307c307c2d35307c347c307c307c307c307c307c307c307c307c307c30033431 (fields=['HME-4', '02b250c21c5f', 'HHM-2', 'ccc837b413f5', '651', '0', '0', '651', '1', '0', '0', '0', '-50', '4', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0'])
+2026-08-20 22:24:17 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 636
+2026-08-20 22:24:17 DEBUG:astrameter:CT002 request from ('192.168.10.32', 22222): 010234357c48484d2d327c6363633833376234313366357c7c3030303030303030303030307c307c307c033737
+2026-08-20 22:24:17 DEBUG:astrameter:CT002 request from ('192.168.10.32', 22222) in inspection mode (phase='0')
+2026-08-20 22:24:17 DEBUG:astrameter:CT002 parsed fields from ('192.168.10.32', 22222): meter_dev_type=HHM-2 meter_mac=ccc837b413f5 ct_type= ct_mac=000000000000 phase='0' power=0 consumer_id=ccc837b413f5 in inspection mode
+2026-08-20 22:24:19 DEBUG:astrameter:Powermeter HomeAssistant produced no fresh message within 2s; serving last known value
+2026-08-20 22:24:19 DEBUG:astrameter:CT002 response to ('192.168.10.32', 22222): 010239317c484d452d347c3032623235306332316335667c48484d2d327c6363633833376234313366357c3633367c307c307c3633367c317c307c307c307c2d35307c357c307c307c307c307c307c307c307c307c307c30033430 (fields=['HME-4', '02b250c21c5f', 'HHM-2', 'ccc837b413f5', '636', '0', '0', '636', '1', '0', '0', '0', '-50', '5', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0'])
+2026-08-20 22:24:21 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 651
+2026-08-20 22:24:21 DEBUG:astrameter:CT002 request from ('192.168.10.32', 22222): 010234357c48484d2d327c6363633833376234313366357c7c3030303030303030303030307c307c307c033737
+2026-08-20 22:24:21 DEBUG:astrameter:CT002 request from ('192.168.10.32', 22222) in inspection mode (phase='0')
+2026-08-20 22:24:21 DEBUG:astrameter:CT002 parsed fields from ('192.168.10.32', 22222): meter_dev_type=HHM-2 meter_mac=ccc837b413f5 ct_type= ct_mac=000000000000 phase='0' power=0 consumer_id=ccc837b413f5 in inspection mode
+2026-08-20 22:24:23 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 657
+2026-08-20 22:24:23 DEBUG:astrameter:CT002 response to ('192.168.10.32', 22222): 010239317c484d452d347c3032623235306332316335667c48484d2d327c6363633833376234313366357c3635377c307c307c3635377c317c307c307c307c2d35307c367c307c307c307c307c307c307c307c307c307c30033433 (fields=['HME-4', '02b250c21c5f', 'HHM-2', 'ccc837b413f5', '657', '0', '0', '657', '1', '0', '0', '0', '-50', '6', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0'])
+2026-08-20 22:24:25 DEBUG:astrameter:Home Assistant: update_entity_value: sensor.e3dc_leistung_batterie_entladen, 663
+2026-08-20 22:24:25 DEBUG:astrameter:CT002 request from ('192.168.10.32', 22222): 010234357c48484d2d327c6363633833376234313366357c7c3030303030303030303030307c307c307c033737
+2026-08-20 22:24:25 DEBUG:astrameter:CT002 request from ('192.168.10.32', 22222) in inspection mode (phase='0')
+2026-08-20 22:24:25 DEBUG:astrameter:CT002 parsed fields from ('192.168.10.32', 22222): meter_dev_type=HHM-2 meter_mac=ccc837b413f5 ct_type= ct_mac=000000000000 phase='0' power=0 consumer_id=ccc837b413f5 in inspection mode

@@ -45,7 +45,8 @@ You can configure the add-on in two ways.
     firmware up to v224)
   - `shellypro3em_new`: Shelly Pro 3EM emulator using port 2220 (for B2500
     firmware v226+, and for Venus E Mini V295 units that send HHM-2/CT
-    discovery frames on that port)
+    discovery frames on that port — it also serves the CT port 12345 those
+    units poll once the CT is selected in the Marstek app)
   - `shellyemg3`: Shelly EM gen3 emulator
   - `shellyproem50`: Shelly Pro EM50 emulator
 

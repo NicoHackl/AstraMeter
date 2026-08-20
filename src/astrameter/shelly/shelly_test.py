@@ -1,3 +1,5 @@
+import asyncio
+import contextlib
 import dataclasses
 import inspect
 import json
@@ -205,3 +207,31 @@ async def test_running_tracks_start_and_stop():
     finally:
         await shelly.stop()
     assert shelly.status_snapshot().running is False
+
+
+async def test_shelly_drives_the_ct_delegate_cleanup_only_while_it_is_a_delegate():
+    """A delegate that also binds the CT port sweeps its own consumers.
+
+    Both loops evict from the same consumer table, so running the sweep from
+    here as well would age a live battery out twice as fast as its own poll
+    cadence warrants.
+    """
+    shelly = _shelly_with_ct_fallback()
+    ct = shelly.ct_fallback
+    assert ct is not None
+    sweeps: list[int] = []
+    ct._cleanup_consumers = lambda: sweeps.append(1)  # type: ignore[method-assign]
+
+    task = asyncio.create_task(shelly._inactive_check_loop())
+    try:
+        await asyncio.sleep(1.2)
+        assert sweeps, "socket-less delegate must be swept by the Shelly loop"
+
+        before = len(sweeps)
+        ct._running = True  # now it owns a socket and its own cleanup task
+        await asyncio.sleep(1.2)
+        assert len(sweeps) == before
+    finally:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
