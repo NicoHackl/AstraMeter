@@ -679,7 +679,7 @@ jobs:
       legacy-image-name: ${{ github.repository_owner == 'tomquist' && 'tomquist/b2500-meter' || '' }}
 
   build-addon:
-    needs: [ validate ]
+    needs: [ lint ]
     permissions:
       contents: read
       packages: write
