@@ -5,6 +5,8 @@ import socket
 from ipaddress import IPv4Network
 
 from astrameter.config import ClientFilter
+from astrameter.ct002 import CT002
+from astrameter.ct002.protocol import parse_request
 from astrameter.powermeter import Powermeter, ThrottledPowermeter
 from astrameter.request_dedupe import RequestDeduplicator
 from astrameter.shelly.shelly import Shelly
@@ -269,6 +271,29 @@ async def test_meter_read_failure_includes_traceback_at_debug(caplog):
     assert record.exc_info[0] is TimeoutError
 
 
+async def test_invalid_json_is_a_terse_warning(caplog):
+    """A stray text datagram is not an application crash and must not evict
+    every useful startup line by logging a traceback on each battery poll."""
+    shelly = Shelly([], udp_port=2220, device_id="test")
+    transport = _FakeTransport()
+
+    with caplog.at_level(logging.DEBUG, logger="astrameter"):
+        await shelly._handle_request(
+            transport,
+            b"definitely not JSON",
+            ("192.168.10.32", 22222),
+        )
+
+    records = [
+        r for r in caplog.records if "Ignoring invalid Shelly JSON" in r.getMessage()
+    ]
+    assert len(records) == 1
+    assert records[0].levelno == logging.WARNING
+    assert not records[0].exc_info
+    assert "192.168.10.32:22222" in records[0].getMessage()
+    assert transport.sent == []
+
+
 async def _send_req(port, request_id, timeout=2.0):
     loop = asyncio.get_running_loop()
     transport, protocol = await loop.create_datagram_endpoint(
@@ -286,6 +311,63 @@ async def _send_req(port, request_id, timeout=2.0):
         transport.sendto(json.dumps(req).encode(), ("127.0.0.1", port))
         data = await asyncio.wait_for(protocol.received, timeout=timeout)
         return json.loads(data.decode())["id"]
+    finally:
+        transport.close()
+
+
+async def test_hhm2_v295_frame_round_trips_over_the_shelly_udp_socket():
+    ct = CT002(
+        udp_port=2220,
+        ct_mac="ec4609c439c1",
+        ct_type="HME-4",
+        device_id="test",
+        active_control=False,
+    )
+
+    async def reading(_addr, _fields=None, _consumer_id=None):
+        return [-963.0, 0.0, 0.0]
+
+    ct.before_send = reading
+    shelly = Shelly(
+        [],
+        udp_port=0,
+        device_id="test",
+        device_type="shellypro3em_new",
+        ct_fallback=ct,
+    )
+    await shelly.start()
+    try:
+        response = await _send_raw(
+            shelly.udp_port,
+            b"\x01\x0245|HHM-2|ccc837b413f5||000000000000|0|0|\x0377",
+        )
+        fields, error = parse_request(response)
+        assert error is None
+        assert fields is not None
+        assert fields[:8] == [
+            "HME-4",
+            "ec4609c439c1",
+            "HHM-2",
+            "ccc837b413f5",
+            "-963",
+            "0",
+            "0",
+            "-963",
+        ]
+    finally:
+        await shelly.stop()
+
+
+async def _send_raw(port: int, request: bytes, timeout: float = 2.0) -> bytes:
+    loop = asyncio.get_running_loop()
+    transport, protocol = await loop.create_datagram_endpoint(
+        lambda: _ClientProtocol(),
+        local_addr=("127.0.0.1", 0),
+        family=socket.AF_INET,
+    )
+    try:
+        transport.sendto(request, ("127.0.0.1", port))
+        return await asyncio.wait_for(protocol.received, timeout=timeout)
     finally:
         transport.close()
 

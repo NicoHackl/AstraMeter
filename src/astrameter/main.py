@@ -1,6 +1,7 @@
 import argparse
 import asyncio
 import contextlib
+import hashlib
 import os
 import signal
 from collections.abc import Sequence
@@ -132,6 +133,23 @@ def _reset_all_powermeters(
         pm.reset()
 
 
+def _virtual_ct_mac(device_id: str) -> str:
+    """Stable CT identity advertised by a CT-framed Shelly listener.
+
+    The generated Shelly IDs already end in a 12-digit MAC-like value, so use
+    it when available. Custom IDs get a deterministic locally administered
+    unicast MAC instead; discovery must never advertise the all-zero wildcard
+    back to a battery because there would be nothing selectable in the app.
+    """
+    suffix = device_id.rsplit("-", 1)[-1].replace(":", "").lower()
+    if len(suffix) == 12 and all(char in "0123456789abcdef" for char in suffix):
+        return suffix
+
+    digest = bytearray(hashlib.sha256(device_id.encode()).digest()[:6])
+    digest[0] = (digest[0] | 0x02) & 0xFE
+    return digest.hex()
+
+
 def _build_ct002(
     ct: CtSettings,
     ct_type: str,
@@ -198,6 +216,7 @@ async def run_device(
     logger.debug(f"Starting device: {device_type}")
 
     device: CT002 | Shelly
+    ct_control_device: CT002 | None = None
     cloud_reporting = False
 
     if device_type in ["ct002", "ct003"]:
@@ -252,6 +271,7 @@ async def run_device(
             return await read_ct_powermeter(addr, powermeters)
 
         device.before_send = update_readings
+        ct_control_device = device
 
         if insights:
 
@@ -278,13 +298,36 @@ async def run_device(
     elif device_type == "shellypro3em_new":
         logger.debug("Shelly Pro 3EM Settings:")
         logger.debug(f"Device ID: {device_id}")
+        # Venus E Mini V295 (HHM-2) sends a native CT002 frame to the new
+        # Shelly port instead of JSON-RPC. Keep the established JSON handler
+        # and multiplex the existing CT implementation onto the same socket.
+        # Its stable virtual MAC is what the app shows after the all-zero
+        # discovery poll; replying with the wildcard would leave no CT to pick.
+        fallback_ct = _build_ct002(
+            replace(
+                config.ct("ct002"),
+                udp_port=2220,
+                ct_mac=_virtual_ct_mac(device_id or "shellypro3em"),
+            ),
+            "HME-4",
+            device_id or "",
+            False,
+            lambda: _reset_all_powermeters(powermeters),
+        )
+
+        async def update_fallback_readings(addr, _fields=None, _consumer_id=None):
+            return await read_ct_powermeter(addr, powermeters)
+
+        fallback_ct.before_send = update_fallback_readings
         device = Shelly(
             powermeters=powermeters,
             device_id=device_id,
             device_type=device_type,
             udp_port=2220,
             dedupe_time_window=general.dedupe_time_window,
+            ct_fallback=fallback_ct,
         )
+        ct_control_device = fallback_ct
 
     elif device_type == "shellyemg3":
         logger.debug("Shelly EM Gen3 Settings:")
@@ -322,6 +365,16 @@ async def run_device(
 
         device.event_listener = _shelly_event_listener
 
+        if device.ct_fallback is not None:
+
+            def _fallback_ct_event_listener(dev_id, consumer_id, data):
+                if data.get("_removed"):
+                    insights.on_ct002_consumer_removed(dev_id, consumer_id)
+                else:
+                    insights.on_ct002_response(dev_id, consumer_id, data)
+
+            device.ct_fallback.event_listener = _fallback_ct_event_listener
+
     try:
         await device.start()
     except Exception:
@@ -344,28 +397,30 @@ async def run_device(
 
     # Register active handler only after successful start so MQTT commands
     # are never routed to a device that failed to come up.
-    if insights and isinstance(device, CT002):
-        insights.register_active_handler(device_id or "", device.set_consumer_active)
+    if insights and ct_control_device is not None:
+        insights.register_active_handler(
+            device_id or "", ct_control_device.set_consumer_active
+        )
         insights.register_manual_target_handler(
-            device_id or "", device.set_consumer_manual_target
+            device_id or "", ct_control_device.set_consumer_manual_target
         )
         insights.register_auto_target_handler(
-            device_id or "", device.set_consumer_auto_target
+            device_id or "", ct_control_device.set_consumer_auto_target
         )
         insights.register_distribution_weight_handler(
-            device_id or "", device.set_consumer_distribution_weight
+            device_id or "", ct_control_device.set_consumer_distribution_weight
         )
         insights.register_efficiency_window_weight_handler(
-            device_id or "", device.set_consumer_efficiency_window_weight
+            device_id or "", ct_control_device.set_consumer_efficiency_window_weight
         )
         insights.register_min_dc_output_handler(
-            device_id or "", device.set_consumer_min_dc_output
+            device_id or "", ct_control_device.set_consumer_min_dc_output
         )
         insights.register_rotation_handler(
-            device_id or "", device.force_efficiency_rotation
+            device_id or "", ct_control_device.force_efficiency_rotation
         )
         insights.register_active_control_handler(
-            device_id or "", device.set_active_control
+            device_id or "", ct_control_device.set_active_control
         )
 
     # Marstek MQTT responder — only wired up when Marstek credentials
@@ -508,10 +563,11 @@ async def run_device(
             cloud_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await cloud_task
-        if insights and isinstance(device, CT002):
+        if insights and ct_control_device is not None:
             insights.unregister_handlers(device_id or "")
-            with contextlib.suppress(Exception):
-                await insights.unregister_marstek(device_id or "")
+            if isinstance(device, CT002):
+                with contextlib.suppress(Exception):
+                    await insights.unregister_marstek(device_id or "")
         try:
             await device.stop()
         except Exception:

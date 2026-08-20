@@ -44,7 +44,8 @@ You can configure the add-on in two ways.
   - `shellypro3em_old`: Shelly Pro 3EM emulator using port 1010 (for B2500
     firmware up to v224)
   - `shellypro3em_new`: Shelly Pro 3EM emulator using port 2220 (for B2500
-    firmware v226+)
+    firmware v226+, and for Venus E Mini V295 units that send HHM-2/CT
+    discovery frames on that port)
   - `shellyemg3`: Shelly EM gen3 emulator
   - `shellyproem50`: Shelly Pro EM50 emulator
 

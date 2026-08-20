@@ -6,6 +6,8 @@ from ipaddress import IPv4Network
 import pytest
 
 from astrameter.config import ClientFilter
+from astrameter.ct002 import CT002
+from astrameter.ct002.protocol import parse_request
 from astrameter.powermeter import Powermeter
 from astrameter.shelly.shelly import BATTERY_INACTIVE_TIMEOUT_SECONDS, Shelly
 
@@ -27,6 +29,10 @@ REQUEST = json.dumps(
     {"id": 1, "src": "cli", "method": "EM.GetStatus", "params": {"id": 0}}
 ).encode()
 
+# Captured from a Venus E Mini running firmware V295. Despite probing the
+# Shelly Pro 3EM port (2220), HHM-2 sends the native Marstek CT wire format.
+HHM2_REQUEST = b"\x01\x0245|HHM-2|ccc837b413f5||000000000000|0|0|\x0377"
+
 
 def _shelly() -> Shelly:
     cf = ClientFilter([IPv4Network("127.0.0.0/8")])
@@ -36,6 +42,86 @@ def _shelly() -> Shelly:
         device_id="test",
         device_type="shellypro3em_old",
     )
+
+
+def _shelly_with_ct_fallback() -> Shelly:
+    ct = CT002(
+        udp_port=2220,
+        ct_mac="ec4609c439c1",
+        ct_type="HME-4",
+        device_id="test",
+        active_control=False,
+    )
+
+    async def reading(_addr, _fields=None, _consumer_id=None):
+        return [-963.0, 0.0, 0.0]
+
+    ct.before_send = reading
+    return Shelly(
+        [],
+        udp_port=2220,
+        device_id="test",
+        device_type="shellypro3em_new",
+        ct_fallback=ct,
+    )
+
+
+async def test_hhm2_ct_frame_on_shelly_port_uses_ct002_compatibility_handler():
+    shelly = _shelly_with_ct_fallback()
+    transport = _FakeTransport()
+
+    await shelly._handle_request(
+        transport,
+        HHM2_REQUEST,
+        ("192.168.10.32", 22222),
+    )
+
+    assert len(transport.sent) == 1
+    response, addr = transport.sent[0]
+    assert addr == ("192.168.10.32", 22222)
+    fields, error = parse_request(response)
+    assert error is None
+    assert fields is not None
+    assert fields[:8] == [
+        "HME-4",
+        "ec4609c439c1",
+        "HHM-2",
+        "ccc837b413f5",
+        "-963",
+        "0",
+        "0",
+        "-963",
+    ]
+
+    # Once CT traffic is observed, the dashboard exposes the real CT consumer
+    # state rather than an empty Shelly card.
+    snapshot = shelly.status_snapshot()
+    assert snapshot.device_id == "test"
+    assert snapshot.udp_port == 2220
+    assert snapshot.consumers[0].consumer_id == "ccc837b413f5"
+    assert snapshot.consumers[0].device_type == "HHM-2"
+
+    # The dashboard sees a CT-shaped status document, so its controls must be
+    # delegated to the same CT state instead of failing on the Shelly wrapper.
+    shelly.set_consumer_manual_target("ccc837b413f5", 125)
+    shelly.set_consumer_auto_target("ccc837b413f5", False)
+    controlled = shelly.status_snapshot().consumers[0]
+    assert controlled.manual_target == 125
+    assert controlled.manual_enabled is True
+
+
+async def test_json_rpc_still_works_when_ct_compatibility_is_enabled():
+    shelly = _shelly_with_ct_fallback()
+    # The Shelly side still needs a powermeter for ordinary JSON-RPC clients.
+    cf = ClientFilter([IPv4Network("127.0.0.0/8")])
+    shelly._powermeters = [(DummyPowermeter(), cf, False)]
+    transport = _FakeTransport()
+
+    await shelly._handle_request(transport, REQUEST, ("127.0.0.1", 54321))
+
+    assert len(transport.sent) == 1
+    response, _ = transport.sent[0]
+    assert json.loads(response)["result"]["total_act_power"] == 1.001
 
 
 def test_status_snapshot_is_not_a_coroutine_function():
