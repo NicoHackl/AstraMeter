@@ -4,7 +4,8 @@ import contextlib
 import hashlib
 import os
 import signal
-from collections.abc import Sequence
+import time
+from collections.abc import Callable, Sequence
 from dataclasses import replace
 
 from astrameter.cloud_reporting import (
@@ -23,6 +24,7 @@ from astrameter.config.settings import (
     MarstekSettings,
 )
 from astrameter.ct002 import CT002
+from astrameter.ct002.ct002 import is_inspection_phase
 from astrameter.marstek_api import (
     MarstekApiError,
     MarstekConfig,
@@ -605,6 +607,17 @@ async def run_device(
                 registry.cloud_reporters[device_id or ""] = reporter
             cloud_task = asyncio.create_task(reporter.run())
 
+    # Only worth watching when the advertised CT is one no Marstek account
+    # knows: with a registered identity the battery can be picked in the app,
+    # and staying in inspection mode then means something else entirely.
+    unpaired_task: asyncio.Task[None] | None = None
+    if ct_control_device is not None and not marstek_mac:
+        unpaired_task = asyncio.create_task(
+            _warn_while_unpaired(
+                ct_control_device, device_type, ct_control_device.ct_type
+            )
+        )
+
     try:
         await device.wait()
     finally:
@@ -614,6 +627,10 @@ async def run_device(
             cloud_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await cloud_task
+        if unpaired_task is not None:
+            unpaired_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await unpaired_task
         if insights and ct_control_device is not None:
             insights.unregister_handlers(device_id or "")
             if isinstance(device, CT002):
@@ -788,6 +805,83 @@ def _build_managed_marstek(
             "Unexpected Marstek auto-registration error: %s", exc, exc_info=True
         )
     return managed_marstek
+
+
+# A battery that is still probing polls every few seconds, so five minutes of
+# it is a settled state and not a slow pairing.  Repeat hourly: the fix needs
+# the user's phone, so one line at startup is easy to miss, and one line per
+# poll would be noise.
+_UNPAIRED_WARN_AFTER_SECONDS = 300.0
+_UNPAIRED_WARN_REPEAT_SECONDS = 3600.0
+
+
+async def _warn_while_unpaired(
+    ct: CT002,
+    device_type: str,
+    ct_type: str,
+    *,
+    check_interval: float = 30.0,
+    clock: Callable[[], float] = time.monotonic,
+) -> None:
+    """Report a battery that keeps probing instead of committing to a phase.
+
+    Active control is skipped for an inspection-mode reporter, so such a
+    battery is served the raw meter reading and zero-export is only ever as
+    steady as the meter itself -- with nothing to see at the default log level.
+    A battery gets stuck there when the CT it is probing for is not one its
+    Marstek account knows, which is exactly the case while we advertise a
+    locally generated identity.  Only started for that case.
+    """
+    first_seen: dict[str, float] = {}
+    last_warned: float | None = None
+    while True:
+        await asyncio.sleep(check_interval)
+        now = clock()
+        try:
+            consumers = ct.status_snapshot().consumers
+        except Exception:  # pragma: no cover - never take the loop down
+            logger.debug("Unpaired-battery check failed", exc_info=True)
+            continue
+
+        live = {
+            c.consumer_id
+            for c in consumers
+            if not c.expired and is_inspection_phase(c.phase)
+        }
+        for consumer_id in live:
+            first_seen.setdefault(consumer_id, now)
+        for consumer_id in list(first_seen):
+            if consumer_id not in live:
+                del first_seen[consumer_id]
+
+        stuck = sorted(
+            consumer_id
+            for consumer_id, since in first_seen.items()
+            if now - since >= _UNPAIRED_WARN_AFTER_SECONDS
+        )
+        if not stuck:
+            last_warned = None
+            continue
+        if (
+            last_warned is not None
+            and now - last_warned < _UNPAIRED_WARN_REPEAT_SECONDS
+        ):
+            continue
+        last_warned = now
+        logger.warning(
+            "%s: battery %s has been probing for a CT for over %d minutes without "
+            "picking a phase, so it is being served the raw meter reading and "
+            "active control never runs for it. The CT it is offered (%s) is a "
+            "local identity the Marstek cloud does not know, so it cannot be "
+            "selected in the app. Enable MARSTEK auto-registration once "
+            "(add-on option 'marstek_auto_register_ct_device' plus account "
+            "e-mail/password), then pick that CT in the app and set the battery "
+            "to Automatic.",
+            device_type,
+            ", ".join(stuck),
+            int(_UNPAIRED_WARN_AFTER_SECONDS // 60),
+            ct_type,
+        )
 
 
 def _addon_slug(args: argparse.Namespace) -> str | None:

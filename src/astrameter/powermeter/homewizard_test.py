@@ -378,9 +378,17 @@ async def test_wait_for_next_message_blocks_until_new():
     assert await pm.get_powermeter_watts() == [200]
 
 
+async def test_wait_for_next_message_serves_an_unread_measurement():
+    pm = _create_powermeter()
+    pm._handle_measurement({"power_w": 100})
+    await pm.wait_for_next_message(timeout=0)
+    assert await pm.get_powermeter_watts() == [100.0]
+
+
 async def test_wait_for_next_message_timeout():
     pm = _create_powermeter()
     pm._handle_measurement({"power_w": 100})
+    await pm.wait_for_next_message(timeout=0)  # consume it
     with pytest.raises(TimeoutError):
         await pm.wait_for_next_message(timeout=0)
 

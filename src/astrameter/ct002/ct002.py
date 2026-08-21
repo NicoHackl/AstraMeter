@@ -315,6 +315,35 @@ class _CT002Protocol(asyncio.DatagramProtocol):
         task.add_done_callback(self._tasks.discard)
 
 
+def is_inspection_phase(phase: str) -> bool:
+    """True while a battery has not committed to a phase yet.
+
+    ``A``/``B``/``C`` are the physical phases and ``D`` is combined /
+    whole-home mode -- all four are actively-steered operating phases.  Every
+    other marker (observed: ``0``, empty) means the battery is still running
+    its phase-discovery routine.  Anything unrecognized counts as inspection so
+    a future marker is never mistaken for a real phase.
+    """
+    return phase.strip().upper() not in ("A", "B", "C", "D")
+
+
+def _local_port(transport) -> object:
+    """The port of *our* socket a datagram arrived on, for the request log.
+
+    A ``shellypro3em_new`` device serves one emulator from two sockets -- 2220
+    for the Venus E Mini's discovery probe and the CT port for a battery that
+    has been paired in the app -- so without this the log cannot tell a battery
+    still probing apart from one that has switched over.
+    """
+    try:
+        sockname = transport.get_extra_info("sockname")
+    except Exception:  # pragma: no cover - transport without extra info
+        return "?"
+    if isinstance(sockname, tuple) and len(sockname) >= 2:
+        return sockname[1]
+    return "?"
+
+
 class CT002:
     def __init__(
         self,
@@ -1222,7 +1251,10 @@ class CT002:
             logger.exception("Error handling CT002 request from %s", addr)
 
     async def _handle_request(self, data, addr, transport):
-        logger.debug("CT002 request from %s: %s", addr, data.hex())
+        local_port = _local_port(transport)
+        logger.debug(
+            "CT002 request from %s on port %s: %s", addr, local_port, data.hex()
+        )
         fields, error = parse_request(data)
         if error:
             logger.debug("Invalid CT002 request from %s: %s", addr, error)
@@ -1248,12 +1280,10 @@ class CT002:
         participates = participate_raw == "" or parse_int(participate_raw, 1) != 0
 
         # Only an unassigned / diagnostic reporter is in inspection mode: "0",
-        # empty, or any other unexpected marker.  "A"/"B"/"C" are the physical
-        # phases and "D" is combined / whole-home mode (newer Marstek firmware)
-        # — all four are valid, actively-steered operating phases, so they are
-        # NOT inspection.  Accept any other value as inspection so a future
-        # marker doesn't get mistaken for a real phase.
-        in_inspection_mode = reported_phase not in ("A", "B", "C", "D")
+        # empty, or any other unexpected marker.  The rule lives in
+        # ``is_inspection_phase`` so the unpaired-battery watchdog in main.py
+        # cannot drift away from what the handler actually does.
+        in_inspection_mode = is_inspection_phase(reported_phase)
         if in_inspection_mode:
             logger.debug(
                 "CT002 request from %s in inspection mode (phase=%r)",
@@ -1262,8 +1292,9 @@ class CT002:
             )
 
         logger.debug(
-            "CT002 parsed fields from %s: meter_dev_type=%s meter_mac=%s ct_type=%s ct_mac=%s phase=%r power=%s consumer_id=%s%s",
+            "CT002 parsed fields from %s on port %s: meter_dev_type=%s meter_mac=%s ct_type=%s ct_mac=%s phase=%r power=%s consumer_id=%s%s",
             addr,
+            local_port,
             fields[0] if len(fields) > 0 else None,
             fields[1] if len(fields) > 1 else None,
             fields[2] if len(fields) > 2 else None,

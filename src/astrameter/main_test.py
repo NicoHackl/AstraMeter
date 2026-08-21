@@ -1,4 +1,6 @@
 import argparse
+import asyncio
+import contextlib
 import logging
 from ipaddress import IPv4Network
 
@@ -6,7 +8,12 @@ import astrameter.main as main_module
 from astrameter.config.config_loader import ClientFilter, new_config_parser
 from astrameter.config.ini_config import IniAppConfig
 from astrameter.config.settings import DEFAULT_CT_UDP_PORT, MarstekSettings
-from astrameter.main import _resolve_device_config, _virtual_ct_mac, read_ct_powermeter
+from astrameter.main import (
+    _resolve_device_config,
+    _virtual_ct_mac,
+    _warn_while_unpaired,
+    read_ct_powermeter,
+)
 from astrameter.powermeter import Powermeter
 
 
@@ -341,3 +348,130 @@ def test_resolve_device_config_shellypro3em_expands_to_old_and_new():
     device_types, device_ids = _resolve("shellypro3em")
     assert device_types == ["shellypro3em_old", "shellypro3em_new"]
     assert device_ids == ["shellypro3em-ec4609c439c1", "shellypro3em-ec4609c439c1"]
+
+
+# --- unpaired-battery watchdog ---
+
+
+class _FakeConsumer:
+    def __init__(self, consumer_id: str, phase: str, expired: bool = False) -> None:
+        self.consumer_id = consumer_id
+        self.phase = phase
+        self.expired = expired
+
+
+class _FakeCt:
+    """Just enough of CT002 for the watchdog: a snapshot with consumers."""
+
+    ct_type = "HME-4"
+
+    def __init__(self, consumers) -> None:
+        self._consumers = consumers
+
+    def status_snapshot(self):
+        return argparse.Namespace(consumers=tuple(self._consumers))
+
+
+class _StepClock:
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+@contextlib.asynccontextmanager
+async def _watchdog(ct, clock):
+    """Run the watchdog for the duration of the block, with no real sleeping."""
+    task = asyncio.create_task(
+        _warn_while_unpaired(
+            ct, "shellypro3em_new", ct.ct_type, check_interval=0, clock=clock
+        )
+    )
+    try:
+        yield
+    finally:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+
+async def _tick(times: int = 5) -> None:
+    for _ in range(times):
+        await asyncio.sleep(0)
+
+
+async def test_unpaired_watchdog_warns_after_a_battery_probes_too_long(caplog):
+    ct = _FakeCt([_FakeConsumer("ccc837b413f5", "0")])
+    clock = _StepClock()
+    with caplog.at_level(logging.WARNING, logger="astrameter"):
+        async with _watchdog(ct, clock):
+            await _tick()
+            assert "probing for a CT" not in caplog.text  # not long enough yet
+            clock.now = 301.0
+            await _tick()
+    assert "probing for a CT" in caplog.text
+    assert "ccc837b413f5" in caplog.text
+    assert "marstek_auto_register_ct_device" in caplog.text
+
+
+async def test_unpaired_watchdog_warns_once_per_hour_not_once_per_poll(caplog):
+    ct = _FakeCt([_FakeConsumer("ccc837b413f5", "0")])
+    clock = _StepClock()
+    with caplog.at_level(logging.WARNING, logger="astrameter"):
+        async with _watchdog(ct, clock):
+            await _tick()  # first sighting starts the clock on this battery
+            clock.now = 301.0
+            await _tick()
+            clock.now = 400.0
+            await _tick()
+    assert caplog.text.count("probing for a CT") == 1
+
+
+async def test_unpaired_watchdog_stays_quiet_for_a_committed_phase(caplog):
+    ct = _FakeCt([_FakeConsumer("ccc837b413f5", "A")])
+    clock = _StepClock()
+    with caplog.at_level(logging.WARNING, logger="astrameter"):
+        async with _watchdog(ct, clock):
+            await _tick()
+            clock.now = 4000.0
+            await _tick()
+    assert "probing for a CT" not in caplog.text
+
+
+async def test_unpaired_watchdog_ignores_an_expired_consumer(caplog):
+    ct = _FakeCt([_FakeConsumer("ccc837b413f5", "0", expired=True)])
+    clock = _StepClock()
+    with caplog.at_level(logging.WARNING, logger="astrameter"):
+        async with _watchdog(ct, clock):
+            await _tick()
+            clock.now = 4000.0
+            await _tick()
+    assert "probing for a CT" not in caplog.text
+
+
+async def test_unpaired_watchdog_forgets_a_battery_that_commits(caplog):
+    consumer = _FakeConsumer("ccc837b413f5", "0")
+    ct = _FakeCt([consumer])
+    clock = _StepClock()
+    with caplog.at_level(logging.WARNING, logger="astrameter"):
+        async with _watchdog(ct, clock):
+            clock.now = 200.0
+            await _tick()
+            consumer.phase = "A"  # picked its phase just before the threshold
+            clock.now = 400.0
+            await _tick()
+    assert "probing for a CT" not in caplog.text
+
+
+async def test_unpaired_watchdog_survives_a_failing_snapshot(caplog):
+    class _BrokenCt(_FakeCt):
+        def status_snapshot(self):
+            raise RuntimeError("torn")
+
+    clock = _StepClock()
+    with caplog.at_level(logging.WARNING, logger="astrameter"):
+        async with _watchdog(_BrokenCt([]), clock):
+            clock.now = 4000.0
+            await _tick()
+    assert "probing for a CT" not in caplog.text

@@ -2,7 +2,12 @@ import asyncio
 
 import pytest
 
-from astrameter.ct002.ct002 import CT002, WILDCARD_CT_MAC, _values_finite
+from astrameter.ct002.ct002 import (
+    CT002,
+    WILDCARD_CT_MAC,
+    _local_port,
+    _values_finite,
+)
 from astrameter.ct002.protocol import build_payload, parse_request
 
 
@@ -418,3 +423,36 @@ def test_without_an_advertised_identity_the_wildcard_is_still_mirrored() -> None
 
 def test_running_is_false_for_a_delegate_that_never_bound_a_socket() -> None:
     assert CT002().running is False
+
+
+class _PortTransport(_RecordingTransport):
+    """A transport that knows its own socket, like a real UDP one."""
+
+    def __init__(self, port: int) -> None:
+        super().__init__()
+        self._port = port
+
+    def get_extra_info(self, name: str):
+        return ("0.0.0.0", self._port) if name == "sockname" else None
+
+
+async def test_request_log_names_the_socket_the_datagram_arrived_on(caplog) -> None:
+    # shellypro3em_new serves one emulator from two sockets (2220 for the Venus
+    # E Mini's probe, 12345 once it is paired), so the log has to say which.
+    ct = CT002()
+
+    async def _readings(addr, fields=None, consumer_id=None) -> list[float]:
+        return [0.0, 0.0, 0.0]
+
+    ct.before_send = _readings
+    with caplog.at_level("DEBUG", logger="astrameter"):
+        await ct._handle_request(
+            _poll("AABBCCDDEEFF"), ("10.0.0.5", 22222), _PortTransport(12345)
+        )
+    assert "CT002 request from ('10.0.0.5', 22222) on port 12345" in caplog.text
+    assert "on port 12345: meter_dev_type=HMG-50" in caplog.text
+
+
+def test_local_port_falls_back_when_the_transport_cannot_say() -> None:
+    assert _local_port(_RecordingTransport()) == "?"
+    assert _local_port(_PortTransport(2220)) == 2220
