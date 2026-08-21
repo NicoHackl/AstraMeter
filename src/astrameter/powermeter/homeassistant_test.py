@@ -648,11 +648,23 @@ async def test_wait_for_message_timeout():
 # wait_for_next_message tests
 
 
+async def test_wait_for_next_message_serves_an_unread_push():
+    # A sample nobody has read yet is already fresh: blocking for one more
+    # push would delay the answer by a whole source interval for nothing.
+    pm = _create_powermeter()
+    await _simulate_auth_and_states(
+        pm, [{"entity_id": "sensor.current_power", "state": "100"}]
+    )
+    await pm.wait_for_next_message(timeout=0)
+    assert await pm.get_powermeter_watts() == [100.0]
+
+
 async def test_wait_for_next_message_blocks_until_new():
     pm = _create_powermeter()
     await _simulate_auth_and_states(
         pm, [{"entity_id": "sensor.current_power", "state": "100"}]
     )
+    await pm.wait_for_next_message(timeout=0)  # consume the initial push
 
     async def _push_later():
         await asyncio.sleep(0.05)
@@ -669,6 +681,7 @@ async def test_wait_for_next_message_timeout():
     await _simulate_auth_and_states(
         pm, [{"entity_id": "sensor.current_power", "state": "100"}]
     )
+    await pm.wait_for_next_message(timeout=0)  # consume the initial push
     with pytest.raises(TimeoutError):
         await pm.wait_for_next_message(timeout=0)
 

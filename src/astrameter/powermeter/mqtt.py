@@ -8,7 +8,7 @@ from jsonpath_ng.ext import parse
 
 from astrameter.config.logger import logger
 
-from .base import Powermeter
+from .base import Powermeter, SampleGate
 
 RECONNECT_DELAY = 5
 
@@ -76,6 +76,7 @@ class MqttPowermeter(Powermeter):
         self.values: list[float | None] = [None] * len(self._subscriptions)
         self._run_task: asyncio.Task[None] | None = None
         self._message_event = asyncio.Event()
+        self._sample_gate = SampleGate(self._message_event)
         self._connected_event = asyncio.Event()
 
     @property
@@ -89,7 +90,7 @@ class MqttPowermeter(Powermeter):
 
     async def start(self) -> None:
         self.values = [None] * len(self._subscriptions)
-        self._message_event.clear()
+        self._sample_gate.reset()
         self._connected_event.clear()
         self._run_task = asyncio.create_task(self._run())
 
@@ -128,7 +129,7 @@ class MqttPowermeter(Powermeter):
                                     self.values[i] = extract_json_value(parsed_json, jp)
                                 else:
                                     self.values[i] = float(payload)
-                                self._message_event.set()
+                                self._sample_gate.mark()
                             except (json.JSONDecodeError, ValueError) as e:
                                 logger.error(
                                     f"Failed to parse MQTT payload for index {i}: {e}"
@@ -183,8 +184,7 @@ class MqttPowermeter(Powermeter):
                 return
 
     async def wait_for_next_message(self, timeout=5):
-        self._message_event.clear()
         try:
-            await asyncio.wait_for(self._message_event.wait(), timeout=timeout)
+            await self._sample_gate.wait(timeout)
         except asyncio.TimeoutError:
             raise TimeoutError("Timeout waiting for MQTT message") from None

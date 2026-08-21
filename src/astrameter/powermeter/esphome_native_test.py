@@ -93,11 +93,20 @@ async def test_wait_for_message_times_out_without_message():
         await pm.wait_for_message(timeout=0.05)
 
 
+async def test_wait_for_next_message_serves_an_unread_state():
+    pm = _subscribed_pm()
+    pm.change_callback(_state(10.0))
+    # An update nobody consumed yet is already fresh -- serve it now instead of
+    # waiting out another source interval.
+    await pm.wait_for_next_message(timeout=0)
+    assert await pm.get_powermeter_watts() == [10.0]
+
+
 async def test_wait_for_next_message_blocks_until_new():
     pm = _subscribed_pm()
     pm.change_callback(_state(10.0))
-    # wait_for_next_message must wait for the *next* update, not return on the
-    # already-received one.
+    await pm.wait_for_next_message(timeout=0)  # consume it
+    # A second read must not be served the same update again.
     with pytest.raises(TimeoutError):
         await pm.wait_for_next_message(timeout=0.05)
 

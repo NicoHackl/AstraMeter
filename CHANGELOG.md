@@ -2,7 +2,7 @@
 
 ## Next
 
-- **Fixed** Venus E Mini V295 units never being steered: their CT probes are now answered with a selectable meter instead of an empty one, and the CT port a paired unit switches to is served too. Enable Marstek CT registration and enter the account credentials once.
+- **Fixed** Venus E Mini V295 units never being steered, and any battery dropping polls because a reply waited out a meter update that had already arrived. Enable Marstek CT registration and enter the account credentials once.
 
 - **Fixed** B2500 batteries sitting at 0 W under active control while the whole house load was imported: the command they were sent could never exceed what the battery needs to start, and a battery that never starts was never sent more ([#600](https://github.com/tomquist/astrameter/issues/600), [#614](https://github.com/tomquist/astrameter/pull/614)).
 

@@ -7,7 +7,7 @@ from collections.abc import Callable
 
 from astrameter.config.logger import logger
 
-from .base import Powermeter, stream_fresh
+from .base import Powermeter, SampleGate, stream_fresh
 
 # SMA Speedwire multicast defaults
 DEFAULT_MULTICAST_GROUP = "239.12.255.254"
@@ -102,6 +102,7 @@ class SmaEnergyMeter(Powermeter):
         self._clock = clock or time.monotonic
         self._last_telegram_monotonic: float | None = None
         self._async_message_event: asyncio.Event | None = None
+        self._sample_gate: SampleGate | None = None
         self._detected_serial: int | None = None
         self._transport: asyncio.DatagramTransport | None = None
 
@@ -237,8 +238,9 @@ class SmaEnergyMeter(Powermeter):
 
         self.values = values
         self._last_telegram_monotonic = self._clock()
-        if self._async_message_event is not None:
-            self._async_message_event.set()
+        gate = self._gate()
+        if gate is not None:
+            gate.mark()
 
     def stream_online(self) -> bool | None:
         # No connection/availability concept (UDP multicast listen), so the
@@ -252,6 +254,21 @@ class SmaEnergyMeter(Powermeter):
             return list(self.values)
         raise ValueError("No value received from SMA Energy Meter")
 
+    def _gate(self) -> SampleGate | None:
+        """Sample gate bound to the event ``start()`` created.
+
+        The event is built in ``start()`` rather than ``__init__``, so the
+        gate is created on first use and rebound if the event is replaced.
+        """
+        event = self._async_message_event
+        if event is None:
+            return None
+        gate = self._sample_gate
+        if gate is None or gate.event is not event:
+            gate = SampleGate(event)
+            self._sample_gate = gate
+        return gate
+
     async def wait_for_message(self, timeout=5):
         if self._async_message_event is None:
             raise RuntimeError("start() must be called before wait_for_message()")
@@ -261,10 +278,10 @@ class SmaEnergyMeter(Powermeter):
             raise TimeoutError("Timeout waiting for SMA Energy Meter data") from None
 
     async def wait_for_next_message(self, timeout=5):
-        if self._async_message_event is None:
+        gate = self._gate()
+        if gate is None:
             raise RuntimeError("start() must be called before wait_for_next_message()")
-        self._async_message_event.clear()
         try:
-            await asyncio.wait_for(self._async_message_event.wait(), timeout)
+            await gate.wait(timeout)
         except asyncio.TimeoutError:
             raise TimeoutError("Timeout waiting for SMA Energy Meter data") from None

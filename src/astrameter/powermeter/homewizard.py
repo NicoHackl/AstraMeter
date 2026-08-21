@@ -9,7 +9,7 @@ from collections.abc import Callable
 
 import aiohttp
 
-from .base import Powermeter, stream_fresh
+from .base import Powermeter, SampleGate, stream_fresh
 
 # Stdlib logger: avoid importing astrameter.config (config_loader imports powermeter).
 logger = logging.getLogger("astrameter")
@@ -68,6 +68,7 @@ class HomeWizardPowermeter(Powermeter):
         self._session: aiohttp.ClientSession | None = None
         self._ws_task: asyncio.Task[None] | None = None
         self._message_event = asyncio.Event()
+        self._sample_gate = SampleGate(self._message_event)
         # Set whenever we receive a new measurement; the ws_loop watchdog
         # clears it after checking staleness to re-arm the timer.
         self._fresh_measurement_event = asyncio.Event()
@@ -97,6 +98,7 @@ class HomeWizardPowermeter(Powermeter):
         self._connected = False
         self._stream_healthy = False
         self._message_event = asyncio.Event()
+        self._sample_gate = SampleGate(self._message_event)
         self._fresh_measurement_event = asyncio.Event()
         self._session = aiohttp.ClientSession()
         self._ws_task = asyncio.create_task(self._ws_loop())
@@ -245,7 +247,7 @@ class HomeWizardPowermeter(Powermeter):
 
         self.values = values
         self._last_measurement_time = now
-        self._message_event.set()
+        self._sample_gate.mark()
         self._fresh_measurement_event.set()
 
     def stream_online(self) -> bool | None:
@@ -281,8 +283,7 @@ class HomeWizardPowermeter(Powermeter):
             raise TimeoutError("Timeout waiting for HomeWizard measurement") from None
 
     async def wait_for_next_message(self, timeout: float = 5) -> None:
-        self._message_event.clear()
         try:
-            await asyncio.wait_for(self._message_event.wait(), timeout=timeout)
+            await self._sample_gate.wait(timeout)
         except asyncio.TimeoutError:
             raise TimeoutError("Timeout waiting for HomeWizard measurement") from None

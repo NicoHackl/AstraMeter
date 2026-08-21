@@ -9,7 +9,7 @@ import aiohttp
 
 from astrameter.power_units import POWER_UNIT_SCALE, POWER_UNITS
 
-from .base import Powermeter
+from .base import Powermeter, SampleGate
 
 # Stdlib logger: avoid importing astrameter.config (config_loader imports powermeter).
 logger = logging.getLogger("astrameter")
@@ -88,6 +88,7 @@ class HomeAssistant(Powermeter):
         self._fetch_states_task: asyncio.Task[None] | None = None
         self._entities_ready = asyncio.Event()
         self._message_event = asyncio.Event()
+        self._sample_gate = SampleGate(self._message_event)
         # Read-only health flag for stream_online(): set on auth_ok, cleared on
         # disconnect (via _reset_for_reconnect).
         self._connected = False
@@ -211,7 +212,7 @@ class HomeAssistant(Powermeter):
                     # state_reported (value unchanged) — wake
                     # ``wait_for_next_message`` so callers don't time
                     # out waiting for a push on a constant sensor.
-                    self._message_event.set()
+                    self._sample_gate.mark()
         removals = ev.get("r")
         if isinstance(removals, list):
             for eid in removals:
@@ -318,7 +319,7 @@ class HomeAssistant(Powermeter):
             )
             self._entity_values[entity_id] = None
         self._check_entities_ready()
-        self._message_event.set()
+        self._sample_gate.mark()
 
     def _update_entity_unit(
         self, entity_id: str, attributes: object, *, partial: bool = False
@@ -415,8 +416,7 @@ class HomeAssistant(Powermeter):
             raise TimeoutError("Timeout waiting for Home Assistant state") from None
 
     async def wait_for_next_message(self, timeout: float = 5) -> None:
-        self._message_event.clear()
         try:
-            await asyncio.wait_for(self._message_event.wait(), timeout=timeout)
+            await self._sample_gate.wait(timeout)
         except asyncio.TimeoutError:
             raise TimeoutError("Timeout waiting for Home Assistant state") from None

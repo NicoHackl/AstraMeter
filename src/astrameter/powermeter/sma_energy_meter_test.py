@@ -323,6 +323,20 @@ class TestWaitForMessageAsync:
 
 
 class TestWaitForNextMessage:
+    async def test_serves_an_unread_telegram(self):
+        meter = _create_meter()
+        meter._async_message_event = asyncio.Event()
+        meter._handle_packet(
+            _build_packet(
+                [
+                    _build_channel(CHANNEL_TOTAL_POWER_PLUS, 1000),
+                    _build_channel(CHANNEL_TOTAL_POWER_MINUS, 0),
+                ]
+            )
+        )
+        await meter.wait_for_next_message(timeout=0)
+        assert await meter.get_powermeter_watts() == [100.0]
+
     async def test_blocks_until_new(self):
         meter = _create_meter()
         meter._async_message_event = asyncio.Event()
@@ -333,6 +347,7 @@ class TestWaitForNextMessage:
             ]
         )
         meter._handle_packet(packet)
+        await meter.wait_for_next_message(timeout=0)  # consume it
 
         async def _push_later():
             await asyncio.sleep(0.05)
